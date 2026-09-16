@@ -1,29 +1,31 @@
-/* Navigation persistante - charge juste après app.js.
-   Intercepte le page('home') de démarrage sans écraser la dernière page choisie. */
+/* Navigation persistante V3 — iOS + Android
+   Bloque tout retour automatique à Accueil.
+   Accueil reste accessible normalement si l'utilisateur appuie dessus. */
 (() => {
   const KEY = 'tc_last_page';
   const allowed = new Set(['home','tour','map','admin','settings']);
-  const original = window.page;
-  if (typeof original !== 'function') return;
+  const originalPage = window.page;
+  if (typeof originalPage !== 'function') return;
 
-  let startupHandled = false;
+  function savedPage() {
+    const s = localStorage.getItem(KEY);
+    return allowed.has(s) ? s : 'home';
+  }
 
+  // Point important :
+  // app.js peut rappeler page('home') après une reprise/reconnexion.
+  // Tant que l'utilisateur n'a pas réellement choisi Accueil,
+  // ce retour automatique est remplacé par sa dernière page.
   window.page = function(name) {
     let target = name;
-
-    // Le premier page('home') après reconnexion est le retour forcé historique.
-    // On le remplace par la dernière page réellement choisie par l'utilisateur.
-    if (!startupHandled && name === 'home') {
-      startupHandled = true;
-      const saved = localStorage.getItem(KEY);
-      if (allowed.has(saved)) target = saved;
+    if (name === 'home' && savedPage() !== 'home') {
+      target = savedPage();
     }
-
-    return original(target);
+    return originalPage(target);
   };
 
-  // Mémorise uniquement les navigations réellement demandées par l'utilisateur.
-  document.addEventListener('pointerdown', (e) => {
+  // Un appui réel sur une barre de navigation est mémorisé AVANT onclick.
+  document.addEventListener('pointerdown', e => {
     const tab = e.target.closest?.('[data-page]');
     if (tab?.dataset.page && allowed.has(tab.dataset.page)) {
       localStorage.setItem(KEY, tab.dataset.page);
@@ -33,13 +35,44 @@
     }
   }, true);
 
-  // Sauvegarde de sécurité avant suspension iOS/Android.
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState !== 'hidden') return;
-    const current = [...allowed].find(name => {
+  // Sécurité clavier/clic.
+  document.addEventListener('click', e => {
+    const tab = e.target.closest?.('[data-page]');
+    if (tab?.dataset.page && allowed.has(tab.dataset.page)) {
+      localStorage.setItem(KEY, tab.dataset.page);
+    }
+  }, true);
+
+  function currentPage() {
+    return [...allowed].find(name => {
       const el = document.getElementById('page-' + name);
       return el && !el.classList.contains('hidden');
     });
-    if (current) localStorage.setItem(KEY, current);
+  }
+
+  function saveCurrent() {
+    const p = currentPage();
+    if (p) localStorage.setItem(KEY, p);
+  }
+
+  function restore() {
+    const p = savedPage();
+    try {
+      if (p === 'admin' && typeof me !== 'undefined' && me && me.role !== 'admin') return;
+      window.page(p);
+    } catch (_) {}
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      saveCurrent();
+    } else {
+      [0,100,300,700,1200].forEach(ms => setTimeout(restore, ms));
+    }
   });
+
+  window.addEventListener('pagehide', saveCurrent, true);
+  window.addEventListener('pageshow', () => {
+    [0,100,300,700,1200].forEach(ms => setTimeout(restore, ms));
+  }, true);
 })();
