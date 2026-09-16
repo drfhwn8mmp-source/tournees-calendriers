@@ -451,3 +451,79 @@
 
   setInterval(restoreHelpSession, 60000);
 })();
+
+
+/* --------------------------------------------------
+   MÉMOIRE DE NAVIGATION iPHONE / PWA
+   Garde la page et les filtres quand iOS recharge l'app.
+-------------------------------------------------- */
+(() => {
+  const KEY_PAGE = 'tc_last_page';
+  const KEY_FILTERS = 'tc_last_filters';
+
+  function saveFilters() {
+    const state = {};
+    ['teamView','sectorSelect','filterStatus','searchHouse','importCity'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) state[id] = el.value;
+    });
+    localStorage.setItem(KEY_FILTERS, JSON.stringify(state));
+  }
+
+  function restoreFilters() {
+    let state = {};
+    try { state = JSON.parse(localStorage.getItem(KEY_FILTERS) || '{}'); } catch (_) {}
+    ['teamView','sectorSelect','filterStatus','searchHouse','importCity'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && state[id] != null && [...(el.options || [])].some(o => o.value === state[id])) {
+        el.value = state[id];
+      } else if (el && id === 'searchHouse' && state[id] != null) {
+        el.value = state[id];
+      }
+    });
+    if (typeof renderHouses === 'function') renderHouses();
+    if (typeof updateSharedImportUI === 'function') updateSharedImportUI();
+  }
+
+  document.addEventListener('click', e => {
+    const tab = e.target.closest('[data-page]');
+    if (tab?.dataset.page) localStorage.setItem(KEY_PAGE, tab.dataset.page);
+
+    const start = e.target.closest('[onclick*="page(\\'tour\\')"]');
+    if (start) localStorage.setItem(KEY_PAGE, 'tour');
+  }, true);
+
+  document.addEventListener('change', e => {
+    if (['teamView','sectorSelect','filterStatus','importCity'].includes(e.target?.id)) saveFilters();
+  }, true);
+
+  document.addEventListener('input', e => {
+    if (e.target?.id === 'searchHouse') saveFilters();
+  }, true);
+
+  function restoreNavigation() {
+    if (!window.me && typeof me !== 'undefined' && !me) return;
+    restoreFilters();
+    const wanted = localStorage.getItem(KEY_PAGE);
+    if (wanted && ['home','tour','map','admin','settings'].includes(wanted)) {
+      if (wanted === 'admin' && typeof me !== 'undefined' && me?.role !== 'admin') return;
+      if (typeof page === 'function') page(wanted);
+    }
+  }
+
+  // iOS peut reconstruire la PWA après un passage dans une autre app.
+  // On restaure après le chargement des données et une seconde fois au retour au premier plan.
+  setTimeout(restoreNavigation, 1800);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      saveFilters();
+      const visible = ['home','tour','map','admin','settings'].find(n => {
+        const el = document.getElementById('page-' + n);
+        return el && !el.classList.contains('hidden');
+      });
+      if (visible) localStorage.setItem(KEY_PAGE, visible);
+    } else {
+      setTimeout(restoreNavigation, 150);
+    }
+  });
+})();
