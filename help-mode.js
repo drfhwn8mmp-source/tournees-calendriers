@@ -249,22 +249,12 @@
       if (error) return toast('Import impossible : ' + error.message);
 
       const all = data?.items || [];
+      /* Affichage détaillé comme avant :
+         - Volvic : toutes les adresses, regroupées par hameau/lieu-dit puis rue
+         - Moulet-Marcenat : seulement les adresses Moulet/Marcenat,
+           en conservant le hameau/lieu-dit d'origine (pas de fusion automatique). */
       imported = city.shared_round
-        ? all.filter(isMouletMarcenatAddress).map(a => {
-            const sourceLocality = String(a.locality || a.context || '').trim();
-            const streetText = String(a.street || a.name || a.label || '').normalize('NFD')
-              .replace(/[\u0300-\u036f]/g, '').toLowerCase();
-            const localityText = sourceLocality.normalize('NFD')
-              .replace(/[\u0300-\u036f]/g, '').toLowerCase();
-
-            let zone = '';
-            if (streetText.includes('marcenat')) zone = 'Marcenat';
-            else if (streetText.includes('moulet')) zone = 'Moulet';
-            else if (localityText.includes('marcenat') && !localityText.includes('moulet')) zone = 'Marcenat';
-            else if (localityText.includes('moulet') && !localityText.includes('marcenat')) zone = 'Moulet';
-
-            return { ...a, _sourceLocality: sourceLocality, locality: zone || sourceLocality };
-          })
+        ? all.filter(isMouletMarcenatAddress)
         : all;
 
       renderImportedAddresses(city);
