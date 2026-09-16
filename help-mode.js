@@ -250,7 +250,21 @@
 
       const all = data?.items || [];
       imported = city.shared_round
-        ? all.filter(isMouletMarcenatAddress)
+        ? all.filter(isMouletMarcenatAddress).map(a => {
+            const sourceLocality = String(a.locality || a.context || '').trim();
+            const streetText = String(a.street || a.name || a.label || '').normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '').toLowerCase();
+            const localityText = sourceLocality.normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+            let zone = '';
+            if (streetText.includes('marcenat')) zone = 'Marcenat';
+            else if (streetText.includes('moulet')) zone = 'Moulet';
+            else if (localityText.includes('marcenat') && !localityText.includes('moulet')) zone = 'Marcenat';
+            else if (localityText.includes('moulet') && !localityText.includes('marcenat')) zone = 'Moulet';
+
+            return { ...a, _sourceLocality: sourceLocality, locality: zone || sourceLocality };
+          })
         : all;
 
       renderImportedAddresses(city);
@@ -414,6 +428,9 @@
             city_name: actualCity,
             latitude: a.lat,
             longitude: a.lon,
+            permanent_note: (a._sourceLocality && normImport(a._sourceLocality) !== normImport(locality))
+              ? `Lieu-dit : ${a._sourceLocality}`
+              : null,
             active: true
           });
 
