@@ -1,0 +1,11 @@
+{
+  "name": "Tournées Calendriers – Amicale SP Volvic",
+  "short_name": "Calendriers",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f6f8",
+  "theme_color": "#b91c1c",
+  "lang": "fr",
+  "description": "Suivi des tournées de calendriers de l'Amicale SP Volvic"
+}
