@@ -453,77 +453,78 @@
 })();
 
 
-/* --------------------------------------------------
-   MÉMOIRE DE NAVIGATION iPHONE / PWA
-   Garde la page et les filtres quand iOS recharge l'app.
--------------------------------------------------- */
+
+/* NAVIGATION PERSISTANTE V2 — iOS + Android */
 (() => {
-  const KEY_PAGE = 'tc_last_page';
-  const KEY_FILTERS = 'tc_last_filters';
+  const K='tc_last_page', F='tc_last_filters';
+  const pages=['home','tour','map','admin','settings'];
 
-  function saveFilters() {
-    const state = {};
-    ['teamView','sectorSelect','filterStatus','searchHouse','importCity'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) state[id] = el.value;
-    });
-    localStorage.setItem(KEY_FILTERS, JSON.stringify(state));
-  }
-
-  function restoreFilters() {
-    let state = {};
-    try { state = JSON.parse(localStorage.getItem(KEY_FILTERS) || '{}'); } catch (_) {}
-    ['teamView','sectorSelect','filterStatus','searchHouse','importCity'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el && state[id] != null && [...(el.options || [])].some(o => o.value === state[id])) {
-        el.value = state[id];
-      } else if (el && id === 'searchHouse' && state[id] != null) {
-        el.value = state[id];
-      }
-    });
-    if (typeof renderHouses === 'function') renderHouses();
-    if (typeof updateSharedImportUI === 'function') updateSharedImportUI();
-  }
-
-  document.addEventListener('click', e => {
-    const tab = e.target.closest('[data-page]');
-    if (tab?.dataset.page) localStorage.setItem(KEY_PAGE, tab.dataset.page);
-
-    const start = e.target.closest('[onclick*="page(\\'tour\\')"]');
-    if (start) localStorage.setItem(KEY_PAGE, 'tour');
-  }, true);
-
-  document.addEventListener('change', e => {
-    if (['teamView','sectorSelect','filterStatus','importCity'].includes(e.target?.id)) saveFilters();
-  }, true);
-
-  document.addEventListener('input', e => {
-    if (e.target?.id === 'searchHouse') saveFilters();
-  }, true);
-
-  function restoreNavigation() {
-    if (!window.me && typeof me !== 'undefined' && !me) return;
-    restoreFilters();
-    const wanted = localStorage.getItem(KEY_PAGE);
-    if (wanted && ['home','tour','map','admin','settings'].includes(wanted)) {
-      if (wanted === 'admin' && typeof me !== 'undefined' && me?.role !== 'admin') return;
-      if (typeof page === 'function') page(wanted);
-    }
-  }
-
-  // iOS peut reconstruire la PWA après un passage dans une autre app.
-  // On restaure après le chargement des données et une seconde fois au retour au premier plan.
-  setTimeout(restoreNavigation, 1800);
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') {
-      saveFilters();
-      const visible = ['home','tour','map','admin','settings'].find(n => {
-        const el = document.getElementById('page-' + n);
-        return el && !el.classList.contains('hidden');
-      });
-      if (visible) localStorage.setItem(KEY_PAGE, visible);
-    } else {
-      setTimeout(restoreNavigation, 150);
-    }
+  const current=()=>pages.find(n=>{
+    const e=document.getElementById('page-'+n);
+    return e&&!e.classList.contains('hidden');
   });
+
+  function saveFilters(){
+    const s={};
+    ['teamView','sectorSelect','filterStatus','searchHouse','importCity'].forEach(id=>{
+      const e=document.getElementById(id); if(e)s[id]=e.value;
+    });
+    localStorage.setItem(F,JSON.stringify(s));
+  }
+
+  function restoreFilters(){
+    let s={}; try{s=JSON.parse(localStorage.getItem(F)||'{}')}catch(_){}
+    ['teamView','sectorSelect','filterStatus','importCity'].forEach(id=>{
+      const e=document.getElementById(id);
+      if(e&&s[id]!=null&&Array.from(e.options||[]).some(o=>o.value===s[id]))e.value=s[id];
+    });
+    const q=document.getElementById('searchHouse'); if(q&&s.searchHouse!=null)q.value=s.searchHouse;
+    try{renderHouses()}catch(_){}
+    try{updateSharedImportUI()}catch(_){}
+  }
+
+  function install(){
+    try{
+      if(typeof page!=='function'||page.__persist)return;
+      const original=page;
+      const wrapped=function(n){if(pages.includes(n))localStorage.setItem(K,n);return original(n)};
+      wrapped.__persist=true; page=wrapped; window.page=wrapped;
+    }catch(_){}
+  }
+
+  function restore(){
+    install();
+    const n=localStorage.getItem(K);
+    if(!pages.includes(n))return;
+    try{
+      if(typeof me!=='undefined'&&!me)return;
+      if(n==='admin'&&typeof me!=='undefined'&&me?.role!=='admin')return;
+      page(n); restoreFilters();
+    }catch(_){}
+  }
+
+  document.addEventListener('pointerdown',e=>{
+    const t=e.target.closest?.('[data-page]');
+    if(t?.dataset.page)localStorage.setItem(K,t.dataset.page);
+    if(e.target.closest?.('.bigstart'))localStorage.setItem(K,'tour');
+  },true);
+
+  document.addEventListener('change',e=>{
+    if(['teamView','sectorSelect','filterStatus','importCity'].includes(e.target?.id))saveFilters();
+  },true);
+  document.addEventListener('input',e=>{if(e.target?.id==='searchHouse')saveFilters()},true);
+
+  function save(){
+    const n=current(); if(n)localStorage.setItem(K,n);
+    saveFilters();
+  }
+
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='hidden')save();
+    else [0,100,300,700,1200,2000].forEach(ms=>setTimeout(restore,ms));
+  });
+  window.addEventListener('pagehide',save,true);
+  window.addEventListener('pageshow',()=>[0,100,300,700,1200,2000].forEach(ms=>setTimeout(restore,ms)),true);
+
+  [50,150,300,600,1000,1500,2200,3200,4500].forEach(ms=>setTimeout(restore,ms));
 })();
