@@ -63,8 +63,7 @@
       renderHouses();
       return;
     }
-    /* "Restants" = tout ce qui n'est pas FAIT : à faire, absent, à repasser, refus.
-       On ne force pas le select car il n'a pas de valeur "restants"; on applique un filtre temporaire. */
+    /* "Restants" = uniquement les foyers encore "à faire". */
     if(fs)fs.value='';
     const sid=E('sectorSelect')?.value||'', tid=E('teamView')?.value||'', q=(E('searchHouse')?.value||'').toLowerCase();
     let list=scope().filter(h=>(!sid||h.sector_id===sid)&&(!tid||teamForHouse(h)===tid));
@@ -88,4 +87,47 @@
   }
 
   window.addEventListener('load',()=>setTimeout(()=>{ if(typeof renderStats==='function')renderStats(); makeHomeStatsClickable(); },1000));
+})();
+
+/* Correctif import Moulet-Marcenat — chargé après help-mode.js */
+(function(){
+  const E=id=>document.getElementById(id);
+  const normalize=s=>String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+
+  function selectedCity(){
+    return cities.find(c=>c.id===E('importCity')?.value);
+  }
+  function isMM(a){
+    const txt=normalize([a.locality,a.context,a.name,a.label,a.street,a.city].filter(Boolean).join(' '));
+    return txt.includes('moulet')||txt.includes('marcenat');
+  }
+
+  function installFix(){
+    const btn=E('loadAddresses');
+    if(!btn) return;
+    btn.onclick=async()=>{
+      const city=selectedCity();
+      if(!city) return;
+      toast('Recherche des adresses…');
+
+      const searchName=city.shared_round ? 'Moulet-Marcenat' : city.name;
+      const {data,error}=await sb.functions.invoke('import-ban-addresses',{
+        body:{q:searchName,postcode:city.postal_code}
+      });
+      if(error) return toast('Import impossible : '+error.message);
+
+      const all=data?.items||[];
+      imported=city.shared_round ? all.filter(isMM) : all;
+      renderImportedAddresses(city);
+
+      if(city.shared_round && !imported.length){
+        toast('Aucune adresse Moulet-Marcenat détectée dans les données reçues');
+      }else{
+        toast(`${imported.length} adresse(s) trouvée(s)`);
+      }
+    };
+  }
+
+  installFix();
+  window.addEventListener('load',()=>setTimeout(installFix,300));
 })();
