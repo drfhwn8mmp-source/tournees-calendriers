@@ -131,3 +131,128 @@
   installFix();
   window.addEventListener('load',()=>setTimeout(installFix,300));
 })();
+
+
+/* Sélection import : hameau complet + rues + adresses individuelles */
+(function(){
+  const E=id=>document.getElementById(id);
+  const norm=s=>String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+  const streetOf=a=>(typeof importStreetName==='function'?importStreetName(a):(a.street||a.name||a.label||'Adresse sans voie'));
+  const localityOf=(a,city)=>(typeof importLocality==='function'?importLocality(a,city):(a.locality||city?.name||'Sans hameau'));
+  const numberOf=a=>(typeof importHouseNumber==='function'?importHouseNumber(a):(a.housenumber||a.house_number||a.number||''));
+  const safe=s=>(typeof esc==='function'?esc(s):String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])));
+
+  function city(){
+    return cities.find(c=>c.id===E('importCity')?.value);
+  }
+
+  window.renderImportedAddresses=function(c){
+    const box=E('streetImport');
+    if(!box)return;
+    if(!imported?.length){
+      box.innerHTML='<p class="muted">Aucune voie trouvée.</p>';
+      return;
+    }
+
+    const groups=new Map();
+    imported.forEach((a,i)=>{
+      const loc=localityOf(a,c)||c?.name||'Sans hameau';
+      const st=streetOf(a)||'Adresse sans voie';
+      if(!groups.has(loc))groups.set(loc,new Map());
+      const streetsMap=groups.get(loc);
+      if(!streetsMap.has(st))streetsMap.set(st,[]);
+      streetsMap.get(st).push({a,i});
+    });
+
+    box.innerHTML=[...groups.entries()].map(([loc,sm],gi)=>{
+      const total=[...sm.values()].reduce((n,x)=>n+x.length,0);
+      const gid='ham-'+gi;
+      const streetsHtml=[...sm.entries()].map(([st,rows],si)=>{
+        const sid=gid+'-st-'+si;
+        const addresses=rows.map(({a,i})=>{
+          const num=numberOf(a);
+          const label=[num,st].filter(Boolean).join(' ');
+          return `<label style="display:flex;align-items:center;gap:10px;padding:9px 6px 9px 34px;border-top:1px solid #f0f1f3">
+            <input type="checkbox" class="addressImportCheck" data-import-index="${i}" data-group="${gid}" data-street-group="${sid}" checked style="width:24px;height:24px;flex:0 0 24px">
+            <span><b>${safe(label||'Adresse')}</b>${a.label&&norm(a.label)!==norm(label)?`<div class="muted">${safe(a.label)}</div>`:''}</span>
+          </label>`;
+        }).join('');
+        return `<div class="street" style="margin-left:14px">
+          <label style="display:flex;align-items:center;gap:10px">
+            <input type="checkbox" class="streetCheck streetMasterCheck" value="${safe(st)}" data-locality="${safe(loc)}" data-group="${gid}" data-street-group="${sid}" checked style="width:26px;height:26px;flex:0 0 26px">
+            <span style="font-size:17px"><b>${safe(st)}</b><div class="muted">${rows.length} adresse(s)</div></span>
+          </label>
+          <div>${addresses}</div>
+        </div>`;
+      }).join('');
+
+      return `<div class="card importHamlet" data-group="${gid}" style="padding:10px;margin-top:10px">
+        <label style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <input type="checkbox" class="hamletMasterCheck" data-group="${gid}" checked style="width:28px;height:28px;flex:0 0 28px">
+          <span style="font-size:18px"><b>🏘️ ${safe(loc)}</b><div class="muted">Tout le hameau · ${total} adresse(s)</div></span>
+        </label>
+        ${streetsHtml}
+      </div>`;
+    }).join('');
+  };
+
+  function syncParents(target){
+    const gid=target.dataset.group, sid=target.dataset.streetGroup;
+    if(sid){
+      const ads=[...document.querySelectorAll(`.addressImportCheck[data-street-group="${sid}"]`)];
+      const st=document.querySelector(`.streetMasterCheck[data-street-group="${sid}"]`);
+      if(st){
+        st.checked=ads.some(x=>x.checked);
+        st.indeterminate=ads.some(x=>x.checked)&&!ads.every(x=>x.checked);
+      }
+    }
+    if(gid){
+      const ads=[...document.querySelectorAll(`.addressImportCheck[data-group="${gid}"]`)];
+      const ham=document.querySelector(`.hamletMasterCheck[data-group="${gid}"]`);
+      if(ham){
+        ham.checked=ads.some(x=>x.checked);
+        ham.indeterminate=ads.some(x=>x.checked)&&!ads.every(x=>x.checked);
+      }
+    }
+  }
+
+  document.addEventListener('change',e=>{
+    const t=e.target;
+    if(t.classList.contains('hamletMasterCheck')){
+      const gid=t.dataset.group;
+      document.querySelectorAll(`.streetMasterCheck[data-group="${gid}"],.addressImportCheck[data-group="${gid}"]`).forEach(x=>{
+        x.checked=t.checked; x.indeterminate=false;
+      });
+    }else if(t.classList.contains('streetMasterCheck')){
+      const sid=t.dataset.streetGroup;
+      document.querySelectorAll(`.addressImportCheck[data-street-group="${sid}"]`).forEach(x=>x.checked=t.checked);
+      syncParents(t);
+    }else if(t.classList.contains('addressImportCheck')){
+      syncParents(t);
+    }
+  });
+
+  function wrapAssign(){
+    const btn=E('assignChecked');
+    if(!btn || btn.dataset.addressSelectionWrapped==='1')return;
+    const original=btn.onclick;
+    if(typeof original!=='function')return;
+    btn.dataset.addressSelectionWrapped='1';
+    btn.onclick=async function(ev){
+      const checks=[...document.querySelectorAll('.addressImportCheck')];
+      if(!checks.length)return original.call(this,ev);
+      const selected=new Set(checks.filter(x=>x.checked).map(x=>Number(x.dataset.importIndex)));
+      if(!selected.size)return toast('Coche au moins une adresse');
+      const full=imported;
+      imported=full.filter((_,i)=>selected.has(i));
+      try{
+        return await original.call(this,ev);
+      }finally{
+        imported=full;
+      }
+    };
+  }
+
+  wrapAssign();
+  window.addEventListener('load',()=>setTimeout(wrapAssign,500));
+})();
