@@ -25,7 +25,8 @@
     if(E('sTotal'))E('sTotal').textContent=list.length;
     if(E('sDone'))E('sDone').textContent=done;
     if(E('sRedo'))E('sRedo').textContent=redo;
-    if(E('sRemain'))E('sRemain').textContent=Math.max(0,list.length-done);
+    const remaining=list.filter(h=>{const st=visitFor(h.id)?.status||'a_faire';return st==='a_faire'}).length;
+    if(E('sRemain'))E('sRemain').textContent=remaining;
     if(E('sCalendars'))E('sCalendars').textContent=cal;
     if(E('sAmount'))E('sAmount').textContent=amt.toLocaleString('fr-FR',{style:'currency',currency:'EUR'});
     if(E('paymentStats'))E('paymentStats').textContent=Object.entries(pay).map(([k,v])=>`${k}: ${v.toLocaleString('fr-FR',{style:'currency',currency:'EUR'})}`).join(' · ')||'Aucun encaissement';
@@ -67,7 +68,7 @@
     if(fs)fs.value='';
     const sid=E('sectorSelect')?.value||'', tid=E('teamView')?.value||'', q=(E('searchHouse')?.value||'').toLowerCase();
     let list=scope().filter(h=>(!sid||h.sector_id===sid)&&(!tid||teamForHouse(h)===tid));
-    list=list.filter(h=>visitFor(h.id)?.status!=='fait' &&
+    list=list.filter(h=>(visitFor(h.id)?.status||'a_faire')==='a_faire' &&
       (`${h.house_number||''} ${h.street||''} ${h.locality||''} ${h.permanent_note||''}`.toLowerCase().includes(q)));
     if(E('houses'))E('houses').innerHTML=list.map(h=>houseHTML(h)).join('')||'<div class="card muted">Tout est terminé 🎉</div>';
   };
@@ -78,7 +79,7 @@
     window.completeTour=async function(){
       const myIds=(typeof myTeamIds==='function'?myTeamIds():[]);
       const relevant=households.filter(h=>visitable(h)&&(me.role==='admin'||me.role==='responsable'||myIds.includes(teamForHouse(h))));
-      const remaining=relevant.filter(h=>visitFor(h.id)?.status!=='fait');
+      const remaining=relevant.filter(h=>['a_faire','absent','a_repasser'].includes(visitFor(h.id)?.status||'a_faire'));
       if(remaining.length){
         if(!confirm(`Il reste ${remaining.length} foyer(s) visitable(s) non terminé(s). Confirmer quand même la fin de tournée ?`))return;
       }
