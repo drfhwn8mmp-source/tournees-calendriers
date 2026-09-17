@@ -44,7 +44,8 @@
         if (r0.error) return toast(r0.error.message);
       }
       const r = await sb.from('households').update({
-        dwelling_type:'maison', apartment_count:null, unit_label:null
+        dwelling_type:'maison', apartment_count:null, unit_label:null,
+        parent_building_id:null, is_visitable:true
       }).eq('id',id);
       if (r.error) return toast(r.error.message);
       await loadAll();
@@ -65,7 +66,9 @@
       dwelling_type:'immeuble',
       apartment_count:count,
       building_name:buildingName || null,
-      unit_label:null
+      unit_label:null,
+      parent_building_id:null,
+      is_visitable:false
     }).eq('id',id);
     if (parentUpdate.error) return toast(parentUpdate.error.message);
 
@@ -80,7 +83,8 @@
         city_name:h.city_name || null, latitude:h.latitude, longitude:h.longitude,
         active:true, is_test:h.is_test || false,
         dwelling_type:'appartement', apartment_count:null,
-        building_name:buildingName || null, unit_label:label
+        building_name:buildingName || null, unit_label:label,
+        parent_building_id:h.id, is_visitable:true
       };
       const r = await sb.from('households').insert(payload);
       if (r.error) return toast(`Appartement ${i} : ${r.error.message}`);
@@ -173,6 +177,38 @@
   const oldLoadAll = window.loadAll;
   /* Les fonctions déclarées avec function dans app.js restent accessibles globalement,
      donc le prochain rendu utilisera automatiquement les nouvelles colonnes déjà sélectionnées par select('*'). */
+
+  /* Les immeubles parents sont des regroupements, jamais des foyers comptables. */
+  window.renderStats = function () {
+    const list = visibleHouses().filter(h => h.is_visitable !== false);
+    const ids = new Set(list.map(h => h.id));
+    const vv = visits.filter(v => ids.has(v.household_id));
+    let done=0, redo=0, cal=0, amt=0, pay={};
+    vv.forEach(v => {
+      if(v.status==='fait') done++;
+      if(['absent','a_repasser'].includes(v.status)) redo++;
+      cal += +v.calendars_count || 0;
+      amt += +v.amount || 0;
+      if(v.payment_method) pay[v.payment_method]=(pay[v.payment_method]||0)+(+v.amount||0);
+    });
+    if($id('sTotal')) $id('sTotal').textContent=list.length;
+    if($id('sDone')) $id('sDone').textContent=done;
+    if($id('sRedo')) $id('sRedo').textContent=redo;
+    if($id('sRemain')) $id('sRemain').textContent=Math.max(0,list.length-done);
+    if($id('sCalendars')) $id('sCalendars').textContent=cal;
+    if($id('sAmount')) $id('sAmount').textContent=amt.toLocaleString('fr-FR',{style:'currency',currency:'EUR'});
+    if($id('paymentStats')) $id('paymentStats').textContent=
+      Object.entries(pay).map(([k,v])=>`${k}: ${v.toLocaleString('fr-FR',{style:'currency',currency:'EUR'})}`).join(' · ') || 'Aucun encaissement';
+
+    if($id('teamProgress')) {
+      $id('teamProgress').innerHTML=teams.map(t=>{
+        const hs=households.filter(h=>h.active!==false && h.is_visitable!==false && teamForHouse(h)===t.id);
+        const d=hs.filter(h=>visitFor(h.id)?.status==='fait').length;
+        const pct=hs.length?Math.round(d/hs.length*100):0;
+        return `<div class="street"><b>${esc(t.name)}</b> — ${d}/${hs.length} (${pct} %)<div class="progress"><span style="width:${pct}%"></span></div></div>`;
+      }).join('') || '<span class="muted">Crée les équipes pour afficher leur progression.</span>';
+    }
+  };
 
   document.addEventListener('DOMContentLoaded', () => {
     const s = document.getElementById('searchHouse');
