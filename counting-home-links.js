@@ -164,7 +164,16 @@
       streetsMap.get(st).push({a,i});
     });
 
-    box.innerHTML=[...groups.entries()].map(([loc,sm],gi)=>{
+    const importSummary=document.createElement('div');
+    importSummary.id='importSelectionSummary';
+    importSummary.className='muted';
+    importSummary.style.cssText='font-size:17px;margin:12px 0 14px;font-weight:600';
+    box.innerHTML='';
+    box.appendChild(importSummary);
+    const listWrap=document.createElement('div');
+    box.appendChild(listWrap);
+
+    listWrap.innerHTML=[...groups.entries()].map(([loc,sm],gi)=>{
       const total=[...sm.values()].reduce((n,x)=>n+x.length,0);
       const gid='ham-'+gi;
       const streetsHtml=[...sm.entries()].map(([st,rows],si)=>{
@@ -194,7 +203,18 @@
         ${streetsHtml}
       </div>`;
     }).join('');
+
+    updateImportSummary();
   };
+
+  function updateImportSummary(){
+    const summary=E('importSelectionSummary');
+    if(!summary)return;
+    const total=imported?.length||0;
+    const checks=[...document.querySelectorAll('.addressImportCheck')];
+    const selected=checks.filter(x=>x.checked).length;
+    summary.textContent=`${total} adresse(s) trouvée(s) • ${selected} sélectionnée(s)`;
+  }
 
   function syncParents(target){
     const gid=target.dataset.group, sid=target.dataset.streetGroup;
@@ -229,6 +249,9 @@
       syncParents(t);
     }else if(t.classList.contains('addressImportCheck')){
       syncParents(t);
+    }
+    if(t.classList.contains('hamletMasterCheck')||t.classList.contains('streetMasterCheck')||t.classList.contains('addressImportCheck')){
+      updateImportSummary();
     }
   });
 
