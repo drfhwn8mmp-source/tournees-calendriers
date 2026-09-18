@@ -80,6 +80,8 @@
           '<div class="muted">'+esc(x.village||'Moulet-Marcenat')+' · '+esc(x.source||'')+' · '+esc(x.confidence||'')+
           (x.distance_existing_m?' · '+x.distance_existing_m+' m du foyer enregistré le plus proche':'')+'</div>'+
           (x.evidence?'<div class="muted">Source de contrôle : '+esc(x.evidence)+'</div>':'')+
+          (x.scope_match?'<div class="muted"><b>Rattachement :</b> '+esc(x.scope_match==='lieu-dit'?'lieu-dit reconnu Moulet-Marcenat':'voie déjà présente dans la tournée')+'</div>':'')+
+          (Number.isFinite(+x.nearest_existing_m)?'<div class="muted"><b>Foyer existant le plus proche :</b> '+Math.round(+x.nearest_existing_m)+' m</div>':'')+
           (x.lat&&x.lon?'<div class="muted">GPS '+Number(x.lat).toFixed(6)+', '+Number(x.lon).toFixed(6)+'</div>':'')+
           '<div class="row" style="margin-top:6px"><button class="btn green" onclick="window.auditAddOne('+i+')">Ajouter</button><button class="btn alt" onclick="window.auditIgnoreOne('+i+')">Ignorer</button></div></div>').join('')+
         '</div>').join('');
