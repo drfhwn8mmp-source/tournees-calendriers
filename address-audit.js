@@ -47,27 +47,36 @@
     if(error){E('auditSummary').textContent='Analyse impossible : '+error.message;return}
     auditCandidates=(data?.candidates||[]).filter(x=>!ignoredKeys.has(x.candidate_key));
     const streets=auditCandidates.filter(x=>x.kind==='street').length,addresses=auditCandidates.filter(x=>x.kind==='address').length,buildings=auditCandidates.filter(x=>x.kind==='building').length;
-    E('auditSummary').innerHTML='<b>'+existing.length+' foyers déjà enregistrés</b><br>⚠️ <b>'+auditCandidates.length+' complément(s) potentiel(s)</b> — '+addresses+' adresse(s), '+streets+' voie(s), '+buildings+' bâtiment(s).'+((data?.warnings||[]).length?'<br>⚠️ '+esc(data.warnings.join(' · ')):'');
+    E('auditSummary').innerHTML='<b>'+existing.length+' foyers déjà enregistrés</b><br>⚠️ <b>'+auditCandidates.length+' complément(s) potentiel(s)</b> — '+addresses+' adresse(s), '+streets+' voie(s), 🏠 <b>'+buildings+' bâtiment(s) à identifier</b>.'+((data?.warnings||[]).length?'<br>⚠️ '+esc(data.warnings.join(' · ')):'');
     E('auditTools').innerHTML='<div class="row" style="margin-top:10px"><button class="btn alt" id="auditSelectAll">☑ Tout sélectionner</button><button class="btn green" id="auditAddSelected">Ajouter la sélection</button></div>';
-    E('auditSelectAll').onclick=()=>document.querySelectorAll('.auditCheck').forEach(x=>x.checked=true);
+    E('auditSelectAll').onclick=()=>document.querySelectorAll('.auditCheck:not([disabled])').forEach(x=>x.checked=true);
     E('auditAddSelected').onclick=addSelected;
     renderAudit();
   }
   function renderAudit(){
     const box=E('auditResults');if(!box)return;
     if(!auditCandidates.length){box.innerHTML='<div class="street">✅ Aucun complément non ignoré détecté.</div>';return}
-    const groups={};auditCandidates.forEach((x,i)=>{const g=x.street||'(bâtiments sans rue identifiée)';(groups[g]??=[]).push([x,i])});
-    box.innerHTML=Object.entries(groups).sort((a,b)=>a[0].localeCompare(b[0],'fr')).map(([street,rows])=>
-      '<div class="street"><label><input type="checkbox" class="auditStreetCheck" data-street="'+esc(street)+'"> <b>'+esc(street)+'</b></label>'+
-      '<div class="muted">'+rows.length+' complément(s)</div>'+
-      rows.map(([x,i])=>'<div class="house" style="margin:7px 0"><label><input type="checkbox" class="auditCheck" value="'+i+'"> '+
-        '<b>'+esc(x.kind==='street'?'Voie détectée':((x.house_number||'—')+' '+(x.street||'Bâtiment sans rue')))+'</b></label>'+
-        '<div class="muted">'+esc(x.village||'Moulet-Marcenat')+' · '+esc(x.source||'')+' · '+esc(x.confidence||'')+
-        (x.distance_existing_m?' · '+x.distance_existing_m+' m du foyer enregistré le plus proche':'')+'</div>'+
-        (x.lat&&x.lon?'<div class="muted">GPS '+Number(x.lat).toFixed(6)+', '+Number(x.lon).toFixed(6)+'</div>':'')+
-        '<div class="row" style="margin-top:6px"><button class="btn green" onclick="window.auditAddOne('+i+')">Ajouter</button><button class="btn alt" onclick="window.auditIgnoreOne('+i+')">Ignorer</button></div></div>').join('')+
-      '</div>').join('');
-    document.querySelectorAll('.auditStreetCheck').forEach(cb=>cb.onchange=()=>{const street=cb.dataset.street;document.querySelectorAll('.auditCheck').forEach(x=>{const c=auditCandidates[+x.value];if((c.street||'(bâtiments sans rue identifiée)')===street)x.checked=cb.checked})});
+    const regular=auditCandidates.map((x,i)=>[x,i]).filter(([x])=>x.kind!=='building');
+    const buildingOnly=auditCandidates.map((x,i)=>[x,i]).filter(([x])=>x.kind==='building');
+    const renderGroups=(rows,isBuilding=false)=>{
+      const groups={};rows.forEach(([x,i])=>{const g=x.street||'(bâtiments sans rue identifiée)';(groups[g]??=[]).push([x,i])});
+      return Object.entries(groups).sort((a,b)=>a[0].localeCompare(b[0],'fr')).map(([street,items])=>
+        '<div class="street"><label>'+(isBuilding?'':'<input type="checkbox" class="auditStreetCheck" data-street="'+esc(street)+'"> ')+'<b>'+esc(street)+'</b></label>'+
+        '<div class="muted">'+items.length+' complément(s)</div>'+
+        items.map(([x,i])=>'<div class="house" style="margin:7px 0"><label>'+
+          (isBuilding?'':'<input type="checkbox" class="auditCheck" value="'+i+'"> ')+
+          '<b>'+esc(isBuilding?'Bâtiment à identifier':(x.kind==='street'?'Voie détectée':((x.house_number||'—')+' '+(x.street||'Bâtiment sans rue'))))+'</b></label>'+
+          '<div class="muted">'+esc(x.village||'Moulet-Marcenat')+' · '+esc(x.source||'')+' · '+esc(x.confidence||'')+
+          (x.distance_existing_m?' · '+x.distance_existing_m+' m du foyer enregistré le plus proche':'')+'</div>'+
+          (x.lat&&x.lon?'<div class="muted">GPS '+Number(x.lat).toFixed(6)+', '+Number(x.lon).toFixed(6)+'</div>':'')+
+          '<div class="row" style="margin-top:6px"><button class="btn green" onclick="window.auditAddOne('+i+')">Ajouter</button><button class="btn alt" onclick="window.auditIgnoreOne('+i+')">Ignorer</button></div></div>').join('')+
+        '</div>').join('');
+    };
+    box.innerHTML=renderGroups(regular)+(buildingOnly.length?
+      '<div class="sectionTitle" style="margin-top:18px">🏠 Bâtiments sans numéro à identifier</div>'+
+      '<div class="muted" style="margin-bottom:8px">Bâtiments IGN proches des voies détectées mais sans numéro fiable. À vérifier individuellement avant ajout.</div>'+
+      renderGroups(buildingOnly,true):'');
+    document.querySelectorAll('.auditStreetCheck').forEach(cb=>cb.onchange=()=>{const street=cb.dataset.street;document.querySelectorAll('.auditCheck').forEach(x=>{const c=auditCandidates[+x.value];if(c?.kind!=='building'&&(c.street||'(bâtiments sans rue identifiée)')===street)x.checked=cb.checked})});
   }
   async function ensureStreet(name,locality){
     if(!name)return null;let st=streets.find(x=>x.city_id===auditCity.id&&norm(x.name)===norm(name));
@@ -75,8 +84,9 @@
     const {data,error}=await sb.from('streets').insert({city_id:auditCity.id,name,locality:locality||auditCity.name,active:true}).select().single();
     if(error)throw error;streets.push(data);return data;
   }
+  const numNorm=s=>norm(s).replace(/\s+/g,'');
   function duplicate(c){
-    return existingForCity().some(h=>norm(h.street)===norm(c.street)&&norm(h.house_number)===norm(c.house_number));
+    return existingForCity().some(h=>norm(h.street)===norm(c.street)&&numNorm(h.house_number)===numNorm(c.house_number));
   }
   async function addCandidate(c,interactive=true){
     if(c.kind==='street'){await ensureStreet(c.street,c.village);return {ok:true,streetOnly:true}}
@@ -104,7 +114,7 @@
       const choices=cities.filter(c=>c.active!==false),txt=choices.map((c,i)=>(i+1)+'. '+c.name).join('\n'),pick=Number(prompt('Dans quel village ajouter cette maison ?\n'+txt,'1'));const city=choices[pick-1];if(!city)return toast('Village invalide');
       const sec=sectors.find(s=>s.city_id===city.id&&s.active!==false);if(!sec)return toast('Aucun secteur pour ce village');
       const street=(prompt('Rue / lieu-dit')||'').trim();if(!street)return;const num=(prompt('Numéro')||'').trim();
-      const dup=households.some(h=>h.sector_id===sec.id&&norm(h.street)===norm(street)&&norm(h.house_number)===norm(num));if(dup)return toast('Cette maison existe déjà');
+      const dup=households.some(h=>h.sector_id===sec.id&&norm(h.street)===norm(street)&&numNorm(h.house_number)===numNorm(num));if(dup)return toast('Cette maison existe déjà');
       let st=streets.find(x=>x.city_id===city.id&&norm(x.name)===norm(street));if(!st){const ins=await sb.from('streets').insert({city_id:city.id,name:street,locality:city.name,active:true}).select().single();if(ins.error)return toast(ins.error.message);st=ins.data}
       const {error}=await sb.from('households').insert({sector_id:sec.id,street_id:st.id,house_number:num,street,locality:city.name,postal_code:city.postal_code||'',city_name:'Volvic',latitude:ll.lat,longitude:ll.lng,active:true,is_test:false,is_visitable:true,dwelling_type:'maison',source_origin:'manual'});
       error?toast(error.message):(toast('Maison ajoutée manuellement'),loadAll());
