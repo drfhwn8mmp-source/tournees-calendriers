@@ -47,7 +47,7 @@
     if(error){E('auditSummary').textContent='Analyse impossible : '+error.message;return}
     auditCandidates=(data?.candidates||[]).filter(x=>!ignoredKeys.has(x.candidate_key));
     const streets=auditCandidates.filter(x=>x.kind==='street').length,addresses=auditCandidates.filter(x=>x.kind==='address').length,buildings=auditCandidates.filter(x=>x.kind==='building').length;
-    E('auditSummary').innerHTML='<b>'+existing.length+' foyers déjà enregistrés</b><br>⚠️ <b>'+auditCandidates.length+' complément(s) potentiel(s)</b> — '+addresses+' adresse(s), '+streets+' voie(s), '+buildings+' bâtiment(s).'+((data?.warnings||[]).length?'<br>⚠️ '+esc(data.warnings.join(' · ')):'');
+    const newRoadCount=auditCandidates.filter(x=>x.kind==='address'&&x.new_street).length, missingNumCount=auditCandidates.filter(x=>x.kind==='address'&&!x.new_street).length, soleilCount=auditCandidates.filter(x=>/soleil levant/i.test(x.street||'')).length;E('auditSummary').innerHTML='<b>'+existing.length+' foyers déjà enregistrés</b><br>🆕 <b>'+newRoadCount+'</b> adresse(s) sur nouvelles voies · 🔢 <b>'+missingNumCount+'</b> numéro(s) supplémentaires'+(soleilCount?'<br>☀️ <b>Rue du Soleil Levant détectée : '+soleilCount+' élément(s)</b>':'<br>⚠️ Rue du Soleil Levant non détectée dans les sources actuelles')+((data?.warnings||[]).length?'<br>⚠️ '+esc(data.warnings.join(' · ')):'');
     E('auditTools').innerHTML='<div class="row" style="margin-top:10px"><button class="btn alt" id="auditSelectAll">☑ Tout sélectionner</button><button class="btn green" id="auditAddSelected">Ajouter la sélection</button></div>';
     E('auditSelectAll').onclick=()=>document.querySelectorAll('.auditCheck').forEach(x=>x.checked=true);
     E('auditAddSelected').onclick=addSelected;
@@ -56,18 +56,24 @@
   function renderAudit(){
     const box=E('auditResults');if(!box)return;
     if(!auditCandidates.length){box.innerHTML='<div class="street">✅ Aucun complément non ignoré détecté.</div>';return}
-    const groups={};auditCandidates.forEach((x,i)=>{const g=x.street||'(bâtiments sans rue identifiée)';(groups[g]??=[]).push([x,i])});
-    box.innerHTML=Object.entries(groups).sort((a,b)=>a[0].localeCompare(b[0],'fr')).map(([street,rows])=>
-      '<div class="street"><label><input type="checkbox" class="auditStreetCheck" data-street="'+esc(street)+'"> <b>'+esc(street)+'</b></label>'+
-      '<div class="muted">'+rows.length+' complément(s)</div>'+
-      rows.map(([x,i])=>'<div class="house" style="margin:7px 0"><label><input type="checkbox" class="auditCheck" value="'+i+'"> '+
-        '<b>'+esc(x.kind==='street'?'Voie détectée':((x.house_number||'—')+' '+(x.street||'Bâtiment sans rue')))+'</b></label>'+
-        '<div class="muted">'+esc(x.village||'Moulet-Marcenat')+' · '+esc(x.source||'')+' · '+esc(x.confidence||'')+
-        (x.distance_existing_m?' · '+x.distance_existing_m+' m du foyer enregistré le plus proche':'')+'</div>'+
-        (x.lat&&x.lon?'<div class="muted">GPS '+Number(x.lat).toFixed(6)+', '+Number(x.lon).toFixed(6)+'</div>':'')+
-        '<div class="row" style="margin-top:6px"><button class="btn green" onclick="window.auditAddOne('+i+')">Ajouter</button><button class="btn alt" onclick="window.auditIgnoreOne('+i+')">Ignorer</button></div></div>').join('')+
-      '</div>').join('');
-    document.querySelectorAll('.auditStreetCheck').forEach(cb=>cb.onchange=()=>{const street=cb.dataset.street;document.querySelectorAll('.auditCheck').forEach(x=>{const c=auditCandidates[+x.value];if((c.street||'(bâtiments sans rue identifiée)')===street)x.checked=cb.checked})});
+    const newRoads=auditCandidates.filter(x=>x.kind==='address'&&x.new_street);
+    const missingNums=auditCandidates.filter(x=>x.kind==='address'&&!x.new_street);
+    const roadOnly=auditCandidates.filter(x=>x.kind==='street'&&!newRoads.some(a=>norm(a.street)===norm(x.street)));
+    const section=(title,desc,list)=>{
+      if(!list.length)return '<div class="card" style="background:#f7f8fa"><b>'+title+'</b><div class="muted">'+desc+'</div><div style="margin-top:8px">✅ Aucun résultat</div></div>';
+      const groups={};list.forEach(x=>{const k=x.street||'(sans voie)';(groups[k]??=[]).push(x)});
+      return '<div class="card" style="background:#f7f8fa"><div class="sectionTitle">'+title+'</div><div class="muted">'+desc+'</div>'+
+        Object.entries(groups).sort((a,b)=>(/soleil levant/i.test(a[0])?-1:1)-(/soleil levant/i.test(b[0])?-1:1)||a[0].localeCompare(b[0],'fr')).map(([street,rows])=>
+          '<div class="street"><label><input type="checkbox" class="auditStreetCheck" data-street="'+esc(street)+'"> <b>'+esc(street)+'</b></label><div class="muted">'+rows.length+' complément(s)</div>'+
+          rows.map(x=>{const i=auditCandidates.indexOf(x);return '<div class="house" style="margin:7px 0"><label><input type="checkbox" class="auditCheck" value="'+i+'"> <b>'+esc(x.kind==='street'?'Voie détectée':((x.house_number||'—')+' '+(x.street||'')))+'</b></label>'+
+          '<div class="muted">'+esc(x.village||'Moulet-Marcenat')+' · '+esc(x.confidence||'')+(x.distance_existing_m?' · '+x.distance_existing_m+' m du foyer le plus proche':'')+'</div>'+
+          (x.lat&&x.lon?'<div class="muted">GPS '+Number(x.lat).toFixed(6)+', '+Number(x.lon).toFixed(6)+'</div>':'')+
+          '<div class="row" style="margin-top:6px"><button class="btn green" onclick="window.auditAddOne('+i+')">Ajouter</button><button class="btn alt" onclick="window.auditIgnoreOne('+i+')">Ignorer</button></div></div>'}).join('')+
+          '</div>').join('')+'</div>';
+    };
+    box.innerHTML=section('🆕 Nouvelles voies absentes','Voies qui ne figurent pas parmi les 160 foyers actuels. À contrôler en priorité.',newRoads.concat(roadOnly))+
+      section('🔢 Numéros supplémentaires sur voies existantes','Numéros présents dans la source complémentaire mais absents de la voie correspondante dans la tournée.',missingNums);
+    document.querySelectorAll('.auditStreetCheck').forEach(cb=>cb.onchange=()=>{const street=cb.dataset.street;document.querySelectorAll('.auditCheck').forEach(x=>{const cand=auditCandidates[+x.value];if((cand.street||'(sans voie)')===street)x.checked=cb.checked})});
   }
   async function ensureStreet(name,locality){
     if(!name)return null;let st=streets.find(x=>x.city_id===auditCity.id&&norm(x.name)===norm(name));
