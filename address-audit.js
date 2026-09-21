@@ -2,7 +2,7 @@
 (function(){
   const E=id=>document.getElementById(id);
   const norm=s=>String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/['’]/g,' ').replace(/[^a-z0-9]+/g,' ').trim();
-  let auditCandidates=[],ignoredKeys=new Set(),auditCity=null,auditSector=null;
+  let auditCandidates=[],hiddenReview=[],ignoredKeys=new Set(),auditCity=null,auditSector=null;
 
   function install(){
     const admin=E('page-admin'); if(!admin||E('addressAuditCard'))return;
@@ -47,6 +47,7 @@
     const {data,error}=await sb.functions.invoke('audit-address-complements',{body:{bbox,existing:payload}});
     if(error){E('auditSummary').textContent='Analyse impossible : '+error.message;return}
     auditCandidates=(data?.candidates||[]).filter(x=>!ignoredKeys.has(x.candidate_key));
+    hiddenReview=Array.isArray(data?.hidden_review)?data.hidden_review:[];
     const addresses=auditCandidates.filter(x=>x.kind==='address'), streetsOnly=auditCandidates.filter(x=>x.kind==='street');
     const confirmed=addresses.filter(isConfirmed).length;
     const probable=addresses.filter(x=>!isConfirmed(x)&&x.review_level==='très probable').length;
@@ -59,10 +60,20 @@
       ((data?.review_hidden_insufficient_count||0)?'<br>⚪ '+data.review_hidden_insufficient_count+' candidat(s) insuffisant(s) masqué(s)':'')+
       ((data?.warnings||[]).length?'<br>⚠️ '+esc(data.warnings.join(' · ')):'');
     E('auditTools').innerHTML='<div class="row" style="margin-top:10px"><button class="btn alt" id="auditSelectAll">☑ Sélectionner les confirmées</button><button class="btn green" id="auditAddSelected">Ajouter les confirmées</button></div>'+
-      '<div class="muted" style="margin-top:6px">Ajout en masse uniquement pour les adresses confirmées. Les autres restent en validation individuelle.</div>';
+      '<div class="muted" style="margin-top:6px">Ajout en masse uniquement pour les adresses confirmées. Les autres restent en validation individuelle.</div>'+((hiddenReview.length)?'<div style="margin-top:10px"><button class="btn alt" id="auditDeepToggle">🔎 Contrôle approfondi ('+hiddenReview.length+')</button></div>':'');
     E('auditSelectAll').onclick=()=>document.querySelectorAll('.auditCheck').forEach(x=>x.checked=x.dataset.confirmed==='1');
     E('auditAddSelected').onclick=addSelected;
+    if(E('auditDeepToggle'))E('auditDeepToggle').onclick=toggleDeepReview;
     renderAudit();
+  }
+  function toggleDeepReview(){
+    let box=E('auditDeepResults');if(box){box.remove();return}
+    box=document.createElement('div');box.id='auditDeepResults';box.style.marginTop='12px';
+    const groups={};hiddenReview.forEach(x=>{const g=x.street||'(sans voie)';(groups[g]??=[]).push(x)});
+    box.innerHTML='<div class="sectionTitle">🔎 Contrôle approfondi — candidats insuffisants</div><div class="muted">Lecture seule : ces adresses ne peuvent pas être ajoutées depuis cette zone.</div>'+
+      Object.entries(groups).sort((a,b)=>a[0].localeCompare(b[0],'fr')).map(([street,items])=>'<div class="street"><b>'+esc(street)+'</b><div class="muted">'+items.length+' candidat(s)</div>'+
+      items.map(x=>'<div class="house" style="margin:7px 0"><b>'+esc((x.house_number||'—')+' '+(x.street||''))+'</b><div class="muted">'+esc(x.village||'')+' · '+esc(x.source||'')+'</div>'+(x.evidence?'<div class="muted">Source : '+esc(x.evidence)+'</div>':'')+(x.reason?'<div class="muted"><b>Pourquoi masquée :</b> '+esc(x.reason)+'</div>':'')+(Number.isFinite(+x.ign_building_distance_m)?'<div class="muted">Bâtiment IGN résidentiel : '+Math.round(+x.ign_building_distance_m)+' m</div>':'')+(Number.isFinite(+x.nearest_existing_m)?'<div class="muted">Foyer existant le plus proche : '+Math.round(+x.nearest_existing_m)+' m</div>':'')+(x.lat&&x.lon?'<div class="muted">GPS '+Number(x.lat).toFixed(6)+', '+Number(x.lon).toFixed(6)+'</div>':'')+'</div>').join('')+'</div>').join('');
+    E('auditTools').after(box);
   }
   function renderAudit(){
     const box=E('auditResults');if(!box)return;
