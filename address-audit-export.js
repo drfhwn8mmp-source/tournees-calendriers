@@ -1,60 +1,24 @@
-/* Export du rapport final du contrôle d'adresses — complément à address-audit.js */
 (function(){
-  let lastFinalReview={confirmed:[],probable:[]};
-
-  function installExportButton(){
-    const tools=document.getElementById('auditTools');
-    if(!tools || document.getElementById('auditExportFinal')) return;
-    const b=document.createElement('button');
-    b.className='btn alt';
-    b.id='auditExportFinal';
-    b.style.marginTop='8px';
-    b.textContent='📋 Exporter le rapport final';
-    b.onclick=exportFinalReport;
-    tools.appendChild(b);
-  }
-
-  function exportFinalReport(){
-    const rows=[
-      ...(lastFinalReview.confirmed||[]).map(x=>({...x,statut:'CONFIRMÉE'})),
-      ...(lastFinalReview.probable||[]).map(x=>({...x,statut:'TRÈS PROBABLE'}))
-    ];
-    if(!rows.length){
-      if(typeof toast==='function') toast('Relancez d’abord « Analyser les compléments »');
-      return;
-    }
-    const cols=['statut','house_number','street','village','source','evidence',
-      'ign_building_distance_m','nearest_existing_m','lat','lon','reason'];
-    const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
-    const csv='\ufeff'+cols.join(';')+'\n'+rows.map(x=>cols.map(k=>q(x[k])).join(';')).join('\n');
-    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');
-    a.href=url;
-    a.download='controle-adresses-moulet-marcenat.csv';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url),1000);
-    if(typeof toast==='function') toast(rows.length+' adresses exportées');
-  }
-
-  function hook(){
-    if(!window.sb?.functions?.invoke || window.__auditExportHooked) return;
-    window.__auditExportHooked=true;
-    const original=window.sb.functions.invoke.bind(window.sb.functions);
-    window.sb.functions.invoke=async function(name,opts){
-      const res=await original(name,opts);
-      if(name==='audit-address-complements' && res?.data?.final_review){
-        lastFinalReview=res.data.final_review;
-        setTimeout(installExportButton,0);
-      }
-      return res;
-    };
-  }
-
-  const observer=new MutationObserver(()=>{hook();installExportButton();});
-  observer.observe(document.documentElement,{childList:true,subtree:true});
-  hook();
-  setTimeout(()=>{hook();installExportButton()},0);
+function q(v){return '"'+String(v??'').replace(/"/g,'""')+'"'}
+function rows(){
+ return [...document.querySelectorAll('#auditResults .house')].map(card=>{
+  const a=card.querySelector('b')?.textContent?.trim()||'';
+  const t=[...card.querySelectorAll('.muted')].map(x=>x.textContent.trim());
+  return {adresse:a,details:t.join(' | ')};
+ }).filter(x=>x.adresse&&x.adresse!=='Voie détectée');
+}
+function exp(){
+ const r=rows(); if(!r.length){toast('Aucun candidat affiché à exporter');return}
+ const csv='\ufeffstatut;adresse;details\n'+r.map(x=>q('CANDIDAT')+';'+q(x.adresse)+';'+q(x.details)).join('\n');
+ const b=new Blob([csv],{type:'text/csv;charset=utf-8'}),u=URL.createObjectURL(b),a=document.createElement('a');
+ a.href=u;a.download='controle-adresses-moulet-marcenat.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1000);
+ toast(r.length+' adresses affichées exportées');
+}
+function install(){
+ const t=document.getElementById('auditTools');if(!t)return;
+ let b=document.getElementById('auditExportFinal');
+ if(!b){b=document.createElement('button');b.className='btn alt';b.id='auditExportFinal';b.style.marginTop='8px';b.textContent='📋 Exporter le rapport final';t.appendChild(b)}
+ b.onclick=exp;
+}
+new MutationObserver(install).observe(document.documentElement,{childList:true,subtree:true});setTimeout(install,0);
 })();
