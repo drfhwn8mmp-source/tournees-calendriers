@@ -19,7 +19,12 @@
    const ctx=context(); if(!ctx.shared&&!ctx.teamId)return toast('Choisis une équipe ou la tournée commune');
    const p=E('endDayPanel'); p.classList.remove('hidden'); p.innerHTML='⏳ Calcul de la journée…';
    const day=new Date(); day.setHours(0,0,0,0);
-   const vv=visits.filter(v=>ctx.ids.has(v.household_id)&&v.status==='fait'&&new Date(v.visited_at||v.updated_at)>=day);
+   let since=day;
+   let q=sb.from('tour_closings').select('period_end').eq('campaign_id',campaign.id).eq('closing_type','day').eq('scope',ctx.shared?'shared':'team');
+   q=ctx.shared?q.is('team_id',null):q.eq('team_id',ctx.teamId);
+   const {data:lastClose}=await q.order('period_end',{ascending:false}).limit(1).maybeSingle();
+   if(lastClose?.period_end && new Date(lastClose.period_end)>since) since=new Date(lastClose.period_end);
+   const vv=visits.filter(v=>ctx.ids.has(v.household_id)&&v.status==='fait'&&new Date(v.visited_at||v.updated_at)>since);
    const cal=vv.reduce((n,v)=>n+(+v.calendars_count||0),0), amt=vv.reduce((n,v)=>n+(+v.amount||0),0),pay={};
    vv.forEach(v=>{if(v.payment_method)pay[v.payment_method]=(pay[v.payment_method]||0)+(+v.amount||0)});
    const {data:profiles}=await sb.from('profiles').select('id,full_name,email').eq('active',true);
@@ -36,6 +41,7 @@
    E('saveEndDay').onclick=()=>save(ctx,vv,cal,pay,profiles||[]);
  }
  async function save(ctx,vv,cal,pay,profiles){
+   if(!vv.length)return toast('Aucun nouveau passage depuis la dernière fin de journée');
    const uid=E('dayPartner').value,free=E('dayPartnerFree').value.trim();
    if(!uid&&!free)return toast('Choisis un membre ou saisis le nom de l’accompagnant');
    if(uid&&free)return toast('Choisis soit un membre, soit un accompagnant');
