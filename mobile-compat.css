@@ -1,0 +1,52 @@
+/* Amicale SP Volvic — affichage mobile iPhone / Android v1 */
+html, body {
+  min-height: 100%;
+  min-height: 100dvh;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overscroll-behavior-y: none;
+}
+body {
+  min-height: 100dvh;
+  padding-bottom: env(safe-area-inset-bottom);
+  -webkit-tap-highlight-color: transparent;
+}
+button, input, select, textarea {
+  min-height: 44px;
+}
+button {
+  touch-action: manipulation;
+}
+input, select, textarea {
+  font-size: 16px; /* évite le zoom automatique iPhone et reste confortable Android */
+}
+.wrap {
+  padding-bottom: calc(96px + env(safe-area-inset-bottom));
+}
+.tabs {
+  padding-bottom: max(env(safe-area-inset-bottom), 4px);
+}
+.tabs button {
+  min-height: 52px;
+  touch-action: manipulation;
+}
+.toast {
+  bottom: calc(82px + env(safe-area-inset-bottom));
+}
+#map {
+  height: 55vh;
+  height: 55dvh;
+  min-height: 300px;
+}
+@media (max-width: 600px) {
+  .wrap { padding-left: 10px; padding-right: 10px; }
+  .card { border-radius: 14px; padding: 12px; }
+  .status button { min-height: 48px; }
+  .row > button { min-width: 110px; }
+}
+body.keyboard-open .tabs {
+  display: none !important;
+}
+body.keyboard-open .wrap {
+  padding-bottom: 18px;
+}
