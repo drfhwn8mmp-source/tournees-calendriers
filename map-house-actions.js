@@ -1,4 +1,4 @@
-/* Actions terrain depuis la carte — Amicale SP Volvic — V4 saisie directe carte */
+/* Actions terrain depuis la carte — Amicale SP Volvic — V5 formulaire popup direct */
 (function(){
   function ownerOf(h){ try{return teamForHouse(h)}catch(_){return null} }
   function ownTeamIds(){ try{return myTeamIds()||[]}catch(_){return []} }
@@ -64,17 +64,33 @@
     }
     const h=households.find(x=>x.id===id), v=visitFor(id)||{};
     if(!h)return;
-    const box=document.createElement('div');
-    box.innerHTML=
-      `<b>✅ Passage — ${esc(h.house_number||'')} ${esc(h.street||'')}</b><br><br>`+
-      `<input id="map-cal-${id}" type="number" min="0" value="${v.calendars_count??1}" placeholder="Calendriers" style="margin-bottom:6px">`+
-      `<input id="map-amt-${id}" type="number" min="0" step=".01" value="${v.amount??''}" placeholder="Don €" style="margin-bottom:6px">`+
-      `<select id="map-pay-${id}" style="margin-bottom:6px"><option value="">Paiement</option>`+
-      `${['especes','carte','cheque','autre'].map(x=>`<option value="${x}" ${v.payment_method===x?'selected':''}>${x}</option>`).join('')}</select>`+
-      `<input id="map-com-${id}" value="${esc(v.visit_comment||'')}" placeholder="Commentaire visite" style="margin-bottom:8px">`+
-      `<button class="btn green" onclick="saveMapDone('${id}')">Valider le passage</button>`;
-    const marker=markers.find(m=>m.__houseId===id);
-    if(marker){ marker.setPopupContent(box); marker.openPopup(); }
+
+    const form=
+      `<div class="map-done-form">`+
+      `<b>✅ Passage — ${esc(h.house_number||'')} ${esc(h.street||'')}</b><br>`+
+      `<span class="muted">${esc(h.locality||'')}</span><br><br>`+
+      `<label>Calendriers</label>`+
+      `<input id="map-cal-${id}" type="number" min="0" value="${v.calendars_count??1}">`+
+      `<label>Don (€)</label>`+
+      `<input id="map-amt-${id}" type="number" min="0" step=".01" value="${v.amount??''}">`+
+      `<label>Mode de paiement</label>`+
+      `<select id="map-pay-${id}">`+
+      `<option value="">— Choisir —</option>`+
+      `${['especes','carte','cheque','autre'].map(x=>`<option value="${x}" ${v.payment_method===x?'selected':''}>${x}</option>`).join('')}`+
+      `</select>`+
+      `<label>Commentaire</label>`+
+      `<input id="map-com-${id}" value="${esc(v.visit_comment||'')}" placeholder="Commentaire visite">`+
+      `<br><button class="btn green" style="width:100%;margin-top:8px" onclick="saveMapDone('${id}')">✅ Valider le passage</button>`+
+      `</div>`;
+
+    /* On remplace le contenu du popup ACTUEL : aucun changement de page,
+       aucun scroll vers la liste, aucune recherche du marqueur nécessaire. */
+    const popup=map?.getPopup?.();
+    if(popup){
+      popup.setContent(form).update();
+      return;
+    }
+    toast('Rouvre la maison sur la carte');
   };
 
   window.saveMapDone=async function(id){
@@ -134,5 +150,5 @@
     setTimeout(()=>map.invalidateSize(),100);
   };
 
-  setTimeout(()=>{try{window.renderMap()}catch(e){console.error('map-house-actions V4',e)}},900);
+  setTimeout(()=>{try{window.renderMap()}catch(e){console.error('map-house-actions V5',e)}},900);
 })();
