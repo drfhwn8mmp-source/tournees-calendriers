@@ -1,6 +1,7 @@
-/* Tri naturel des adresses — Amicale SP Volvic
-   Rue par ordre alphabétique puis numéro réellement croissant :
-   1, 2, 2 bis, 3, 10, 10 bis, 11... */
+/* Tri naturel des adresses V2 — Amicale SP Volvic
+   Priorité : rue -> numéro croissant -> localité.
+   Exemple Route de Clermont : 1, 2, 3, 4, 7, 9, 10, 11...
+*/
 (function(){
   const collator = new Intl.Collator('fr', {
     numeric: true,
@@ -12,11 +13,12 @@
     const streetCmp = collator.compare(String(a.street||''), String(b.street||''));
     if(streetCmp) return streetCmp;
 
-    const localityCmp = collator.compare(String(a.locality||''), String(b.locality||''));
-    if(localityCmp) return localityCmp;
-
+    // IMPORTANT : le numéro doit être comparé AVANT la localité.
     const numCmp = collator.compare(String(a.house_number||''), String(b.house_number||''));
     if(numCmp) return numCmp;
+
+    const localityCmp = collator.compare(String(a.locality||''), String(b.locality||''));
+    if(localityCmp) return localityCmp;
 
     return collator.compare(String(a.id||''), String(b.id||''));
   }
@@ -26,21 +28,18 @@
     households.sort(naturalAddressSort);
   }
 
-  // On trie le tableau source avant chaque rendu.
   const originalRenderHouses = window.renderHouses;
   window.renderHouses = function(){
     sortAll();
     return originalRenderHouses.apply(this, arguments);
   };
 
-  // Premier tri après le chargement initial.
   setTimeout(()=>{
     sortAll();
     try{
       window.renderHouses();
-      window.renderMap?.();
     }catch(e){
-      console.error('Tri naturel adresses:',e);
+      console.error('Tri naturel adresses V2:',e);
     }
   },100);
 
