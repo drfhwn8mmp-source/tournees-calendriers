@@ -1,4 +1,4 @@
-/* Actions terrain depuis la carte — Amicale SP Volvic — V5 formulaire popup direct */
+/* Actions terrain depuis la carte — Amicale SP Volvic — V6 aide entre tournées */
 (function(){
   function ownerOf(h){ try{return teamForHouse(h)}catch(_){return null} }
   function ownTeamIds(){ try{return myTeamIds()||[]}catch(_){return []} }
@@ -95,11 +95,15 @@
 
   window.saveMapDone=async function(id){
     const h=households.find(x=>x.id===id); if(!h)return;
-    const old=visitFor(id)||{}, owner=ownerOf(h);
+    const old=visitFor(id)||{}, owner=ownerOf(h), mine=ownTeamIds();
+    const myTeam=mine[0]||null, helping=!!(owner && myTeam && owner!==myTeam);
     const payload={
       campaign_id:campaign.id, household_id:id,
-      team_id:owner||old.team_id||null, original_team_id:owner||old.original_team_id||null,
-      helper_mode:false, status:'fait',
+      /* La visite reste comptée pour la tournée propriétaire.
+         helper_mode indique qu'une autre tournée a effectué le passage. */
+      team_id:owner||old.team_id||myTeam||null,
+      original_team_id:owner||old.original_team_id||null,
+      helper_mode:helping, status:'fait',
       calendars_count:+(document.getElementById('map-cal-'+id)?.value||0),
       amount:+(document.getElementById('map-amt-'+id)?.value||0),
       payment_method:document.getElementById('map-pay-'+id)?.value||null,
@@ -130,10 +134,12 @@
       const owner=ownerOf(h), own=ids.includes(owner), currentName=teamName(owner);
       const color=st==='fait'?'green':(['absent','a_repasser'].includes(st)?'orange':st==='refus'?'black':'gray');
 
+      const helping=!!(owner && ids.length && !own);
       let html=
         `<b>${esc(h.house_number||'')} ${esc(h.street||'')}</b><br>`+
         `${esc(h.locality||'')}<br>`+
         `<b>🚒 Tournée actuelle : ${esc(currentName)}</b><br>`+
+        `${helping?'<b>🤝 Passage pour aider cette tournée</b><br>':''}`+
         `<span class="muted">${esc(st)}</span><br><br>`+
         `<button onclick="mapVisitAction('${h.id}','fait')">✅ Fait</button> `+
         `<button onclick="mapVisitAction('${h.id}','absent')">🚪 Absent</button> `+
@@ -150,5 +156,5 @@
     setTimeout(()=>map.invalidateSize(),100);
   };
 
-  setTimeout(()=>{try{window.renderMap()}catch(e){console.error('map-house-actions V5',e)}},900);
+  setTimeout(()=>{try{window.renderMap()}catch(e){console.error('map-house-actions V6',e)}},900);
 })();
