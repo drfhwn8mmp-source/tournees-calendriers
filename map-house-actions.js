@@ -1,4 +1,4 @@
-/* Actions terrain depuis la carte — Amicale SP Volvic — V3 équipe actuelle */
+/* Actions terrain depuis la carte — Amicale SP Volvic — V4 saisie directe carte */
 (function(){
   function ownerOf(h){ try{return teamForHouse(h)}catch(_){return null} }
   function ownTeamIds(){ try{return myTeamIds()||[]}catch(_){return []} }
@@ -58,17 +58,46 @@
   };
 
   window.mapVisitAction=function(id,status){
-    if(status==='fait'){
-      try{page('tour')}catch(_){}
-      setTimeout(()=>{
-        try{
-          document.getElementById('h-'+id)?.scrollIntoView({behavior:'smooth',block:'center'});
-          openDone(id);
-        }catch(_){}
-      },150);
+    if(status!=='fait'){
+      saveVisit(id,status).then(()=>{try{window.renderMap()}catch(_){}});
       return;
     }
-    saveVisit(id,status);
+    const h=households.find(x=>x.id===id), v=visitFor(id)||{};
+    if(!h)return;
+    const box=document.createElement('div');
+    box.innerHTML=
+      `<b>✅ Passage — ${esc(h.house_number||'')} ${esc(h.street||'')}</b><br><br>`+
+      `<input id="map-cal-${id}" type="number" min="0" value="${v.calendars_count??1}" placeholder="Calendriers" style="margin-bottom:6px">`+
+      `<input id="map-amt-${id}" type="number" min="0" step=".01" value="${v.amount??''}" placeholder="Don €" style="margin-bottom:6px">`+
+      `<select id="map-pay-${id}" style="margin-bottom:6px"><option value="">Paiement</option>`+
+      `${['especes','carte','cheque','autre'].map(x=>`<option value="${x}" ${v.payment_method===x?'selected':''}>${x}</option>`).join('')}</select>`+
+      `<input id="map-com-${id}" value="${esc(v.visit_comment||'')}" placeholder="Commentaire visite" style="margin-bottom:8px">`+
+      `<button class="btn green" onclick="saveMapDone('${id}')">Valider le passage</button>`;
+    const marker=markers.find(m=>m.__houseId===id);
+    if(marker){ marker.setPopupContent(box); marker.openPopup(); }
+  };
+
+  window.saveMapDone=async function(id){
+    const h=households.find(x=>x.id===id); if(!h)return;
+    const old=visitFor(id)||{}, owner=ownerOf(h);
+    const payload={
+      campaign_id:campaign.id, household_id:id,
+      team_id:owner||old.team_id||null, original_team_id:owner||old.original_team_id||null,
+      helper_mode:false, status:'fait',
+      calendars_count:+(document.getElementById('map-cal-'+id)?.value||0),
+      amount:+(document.getElementById('map-amt-'+id)?.value||0),
+      payment_method:document.getElementById('map-pay-'+id)?.value||null,
+      visit_comment:document.getElementById('map-com-'+id)?.value||null,
+      visited_by:me.id, visited_at:new Date().toISOString(),
+      updated_at:new Date().toISOString(), client_updated_at:new Date().toISOString()
+    };
+    const {data,error}=await sb.from('visits').upsert(payload,{onConflict:'campaign_id,household_id'}).select().single();
+    if(error)return toast('Enregistrement impossible : '+error.message);
+    const i=visits.findIndex(x=>x.household_id===id);
+    if(i>=0)visits[i]={...visits[i],...data}; else visits.push(data);
+    try{await sb.from('visit_presence').delete().eq('household_id',id).eq('user_id',me.id)}catch(_){}
+    try{renderStats();renderHouses();window.renderMap()}catch(_){}
+    toast('Passage enregistré');
   };
 
   window.renderMap=function(){
@@ -100,10 +129,10 @@
       }
 
       const m=L.circleMarker([+h.latitude,+h.longitude],{radius:own?7:5,color,fillOpacity:own?.8:.35}).addTo(map).bindPopup(html);
-      markers.push(m);
+      m.__houseId=h.id; markers.push(m);
     });
     setTimeout(()=>map.invalidateSize(),100);
   };
 
-  setTimeout(()=>{try{window.renderMap()}catch(e){console.error('map-house-actions V3',e)}},900);
+  setTimeout(()=>{try{window.renderMap()}catch(e){console.error('map-house-actions V4',e)}},900);
 })();
