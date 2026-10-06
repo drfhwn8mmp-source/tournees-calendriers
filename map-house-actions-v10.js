@@ -1,4 +1,4 @@
-/* Actions carte unifiées V12 — rendu carte stable : tous les points restent chargés */
+/* Actions carte unifiées V13 — rendu carte stable : tous les points restent chargés */
 (function(){
  const owner=h=>{try{return teamForHouse(h)}catch(_){return null}};
  const mine=()=>{try{return myTeamIds()||[]}catch(_){return []}};
@@ -12,20 +12,59 @@
  window.mapVisitAction=function(id,status){if(status==='fait')return doneModal(id);return saveStatus(id,status)};
  window.mapVisitActionV9=window.mapVisitAction;
  window.saveMapDone=function(id){return doneModal(id)};
- window.claimHousehold=async function(id){
- const __beforeCenter=(()=>{try{return map?.getCenter?.()}catch(_){return null}})();
- const __beforeZoom=(()=>{try{return map?.getZoom?.()}catch(_){return null}})();
- const __beforeMarkers=(()=>{try{return (markers||[]).slice()}catch(_){return []}})();
- function __restoreNoRedraw(){
-   try{
-     /* IMPORTANT: cancellation must not call renderMap or remove markers. */
-     if(map && __beforeCenter && __beforeZoom!=null) map.setView(__beforeCenter,__beforeZoom,{animate:false});
-     (__beforeMarkers||[]).forEach(m=>{try{if(map&&!map.hasLayer(m))m.addTo(map)}catch(_){}});
-     markers=__beforeMarkers;
-     map?.invalidateSize?.({pan:false});
-   }catch(_){}
- }
-const h=households.find(x=>x.id===id);if(!h)return toast('Adresse introuvable');if(shared(h))return toast('La tournée commune Moulet–Marcenat ne doit pas être rattachée à une équipe');if(locked(h))return toast('Cette tournée est clôturée : rouvre-la avant de déplacer cette adresse');const current=owner(h);let allowed=me?.role==='admin'?(teams||[]).filter(t=>t.active!==false):(teams||[]).filter(t=>mine().includes(t.id));if(!allowed.length)return toast('Aucune équipe disponible');let target=allowed[0];if(allowed.length>1){const choices=allowed.map((t,i)=>`${i+1}. ${t.name}${t.id===current?'  ← ACTUELLE':''}`).join('\n');const n=Number(prompt(`Tournée actuelle : ${tname(current)}\n\nChoisir la nouvelle équipe :\n${choices}`,'1'));if(!n||!allowed[n-1]){__restoreNoRedraw();return;}target=allowed[n-1]}if(target.id===current)return toast('Cette adresse est déjà dans '+tname(current));if(!confirm(`Confirmer la correction ?\n\n${h.house_number||''} ${h.street||''}\n${h.locality||''}\n\n${tname(current)} → ${target.name}\n\nLa maison sera retirée de l’ancienne tournée et rattachée à la nouvelle. Ce n’est pas de l’aide.`)){__restoreNoRedraw();return;}const {data,error}=await sb.rpc('claim_household_for_my_team',{p_household_id:id,p_team_id:target.id});if(error)return toast('Correction impossible : '+error.message);if(data){const i=households.findIndex(x=>x.id===id);if(i>=0)households[i]={...households[i],...data}}else{const r=await sb.from('households').select('*').eq('id',id).maybeSingle();if(r.data){const i=households.findIndex(x=>x.id===id);if(i>=0)households[i]={...households[i],...r.data}}}try{renderHouses();renderStats();window.renderMap()}catch(_){}toast('Adresse déplacée : '+tname(current)+' → '+target.name)};
+ window.claimHousehold=function(id){
+   const h=households.find(x=>x.id===id);
+   if(!h)return toast('Adresse introuvable');
+   if(shared(h))return toast('La tournée commune Moulet–Marcenat ne doit pas être rattachée à une équipe');
+   if(locked(h))return toast('Cette tournée est clôturée : rouvre-la avant de déplacer cette adresse');
+
+   const current=owner(h);
+   const allowed=me?.role==='admin'
+     ?(teams||[]).filter(t=>t.active!==false)
+     :(teams||[]).filter(t=>mine().includes(t.id));
+   if(!allowed.length)return toast('Aucune équipe disponible');
+
+   /* V13 : plus aucun prompt()/confirm() natif.
+      Sur iOS PWA ces boîtes système peuvent provoquer un repaint Leaflet/SVG
+      et faire disparaître visuellement des marqueurs. On reste 100 % dans le DOM. */
+   try{map?.closePopup?.()}catch(_){}
+
+   let box=document.getElementById('mapTeamModalV13');
+   if(!box){box=document.createElement('div');box.id='mapTeamModalV13';document.body.appendChild(box)}
+   box.style.cssText='position:fixed;inset:0;z-index:13000;background:rgba(0,0,0,.45);padding:calc(env(safe-area-inset-top) + 8px) 12px calc(env(safe-area-inset-bottom) + 8px);overflow:auto;display:flex;align-items:flex-start;justify-content:center;-webkit-overflow-scrolling:touch';
+
+   const opts=allowed.map(t=>`<option value="${esc7(t.id)}" ${t.id===current?'selected':''}>${esc7(t.name)}${t.id===current?' — actuelle':''}</option>`).join('');
+   box.innerHTML=`<div style="background:#fff;width:min(520px,100%);margin:18px auto;border-radius:16px;padding:16px;box-shadow:0 8px 30px #0005">
+     <b style="font-size:18px">📍 Modifier l’équipe</b>
+     <div style="margin-top:8px"><b>${esc7(h.house_number||'')} ${esc7(h.street||'')}</b><br><span class="muted">${esc7(h.locality||'')}</span></div>
+     <br><label>Équipe</label><select id="mapTeamSelectV13">${opts}</select>
+     <button class="btn green" id="mapTeamSaveV13" style="width:100%;margin-top:12px">Valider le changement</button>
+     <button class="btn alt" id="mapTeamCancelV13" style="width:100%;margin-top:8px">Annuler</button>
+   </div>`;
+
+   const close=()=>{box.style.display='none';try{map?.invalidateSize?.({pan:false})}catch(_){}};
+   document.getElementById('mapTeamCancelV13').onclick=close;
+   box.onclick=e=>{if(e.target===box)close()};
+
+   document.getElementById('mapTeamSaveV13').onclick=async()=>{
+     const targetId=document.getElementById('mapTeamSelectV13').value;
+     const target=allowed.find(t=>String(t.id)===String(targetId));
+     if(!target)return;
+     if(target.id===current){close();return toast('Cette adresse est déjà dans '+tname(current))}
+     const btn=document.getElementById('mapTeamSaveV13');btn.disabled=true;btn.textContent='Enregistrement…';
+     const {data,error}=await sb.rpc('claim_household_for_my_team',{p_household_id:id,p_team_id:target.id});
+     if(error){btn.disabled=false;btn.textContent='Valider le changement';return toast('Correction impossible : '+error.message)}
+     if(data){
+       const i=households.findIndex(x=>x.id===id);if(i>=0)households[i]={...households[i],...data};
+     }else{
+       const r=await sb.from('households').select('*').eq('id',id).maybeSingle();
+       if(r.data){const i=households.findIndex(x=>x.id===id);if(i>=0)households[i]={...households[i],...r.data}}
+     }
+     close();
+     try{renderHouses();renderStats();window.renderMap()}catch(_){}
+     toast('Adresse déplacée : '+tname(current)+' → '+target.name);
+   };
+ };
 
  /* V8: aucun filtrage par getBounds et aucun rerender lors d'un déplacement.
     Les marqueurs sont tous créés et restent dans la couche Leaflet. */
@@ -33,6 +72,7 @@ const h=households.find(x=>x.id===id);if(!h)return toast('Adresse introuvable');
    if(!map){
      map=L.map('map').setView([45.872,3.038],13);
      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map);
+     try{window.__mapCanvasV13=L.canvas({padding:.5})}catch(_){}
    }
    markers.forEach(m=>{try{m.remove()}catch(_){}});
    markers=[];
@@ -43,7 +83,7 @@ const h=households.find(x=>x.id===id);if(!h)return toast('Adresse introuvable');
       const st=visitFor(h.id)?.status||'a_faire',r=route(h),own=r.s||ids.includes(r.o),name=r.s?'Tournée commune Moulet–Marcenat':tname(r.o),color=st==='fait'?'green':(['absent','a_repasser'].includes(st)?'orange':st==='refus'?'black':'gray'),help=r.help;
       let html=`<b>${esc7(h.house_number||'')} ${esc7(h.street||'')}</b><br>${esc7(h.locality||'')}<br><b>🚒 ${esc7(name)}</b><br>${help?'<b>🤝 Passage pour aider cette tournée</b><br>':''}<span class="muted">${esc7(st)}</span><br><br><button onclick="mapVisitAction('${h.id}','fait')">✅ Fait</button> <button onclick="mapVisitAction('${h.id}','absent')">🚪 Absent</button> <button onclick="mapVisitAction('${h.id}','a_repasser')">🔄 À repasser</button> <button onclick="mapVisitAction('${h.id}','refus')">⛔ Refus</button>`;
       if(!r.s&&(me?.role==='admin'||!own))html+=`<br><br><button onclick="event.preventDefault();event.stopPropagation();claimHousehold('${h.id}')">📍 Modifier l’équipe de cette adresse</button>`;
-      const m=L.circleMarker([+h.latitude,+h.longitude],{radius:own?7:5,color,fillOpacity:own?.8:.35}).addTo(map).bindPopup(html,{maxWidth:340,autoPan:false,keepInView:false});
+      const m=L.circleMarker([+h.latitude,+h.longitude],{radius:own?7:5,color,fillOpacity:own?.8:.35,renderer:window.__mapCanvasV13||undefined}).addTo(map).bindPopup(html,{maxWidth:340,autoPan:false,keepInView:false});
       m.__houseId=h.id;markers.push(m);
     });
    setTimeout(()=>{try{map.invalidateSize({pan:false})}catch(_){}},100);
