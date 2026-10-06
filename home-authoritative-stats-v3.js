@@ -1,11 +1,14 @@
 /* Accueil V3 — statistiques autoritaires directement depuis Supabase
-   Une seule source de vérité pour les totaux d'équipes et Moulet-Marcenat.
+   Correctif : source de vérité équipe = secteur du foyer.
+   Gère les rues partagées entre plusieurs équipes sans déplacer/supprimer de foyers.
+   Moulet-Marcenat reste une tournée commune séparée.
    Aucun changement de données : lecture uniquement.
 */
 (function(){
  const E=id=>document.getElementById(id);
  const money=n=>(+n||0).toLocaleString('fr-FR',{style:'currency',currency:'EUR'});
  const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+ const norm=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
 
  async function allRows(table, select='*', apply=q=>q){
    const out=[], PAGE=1000;
@@ -63,32 +66,44 @@
        <div class="progress"><span style="width:${pct}%"></span></div></div>`;
    }).join('');
  }
+ function teamForSector(sector, teams){
+   if(!sector)return null;
+   const sn=norm(sector.name);
+   if(sn.includes('moulet')&&sn.includes('marcenat'))return null;
+   let t=teams.find(x=>norm(x.name)===sn);
+   if(t)return t.id;
+   const m=sn.match(/equipe\s*(\d+)/);
+   if(m){
+     t=teams.find(x=>new RegExp('equipe\\s*'+m[1]+'(?:\\D|$)').test(norm(x.name)));
+     if(t)return t.id;
+   }
+   return null;
+ }
 
  async function refresh(){
    if(typeof sb==='undefined'||!campaign)return;
    try{
-     // Read the complete active dataset directly, independent of UI/RLS-side partial local arrays.
-     const [hh, vv, ss, cc, tt, ts, tm]=await Promise.all([
+     const [hh,vv,ss,cc,tt,tm]=await Promise.all([
        allRows('households','*',q=>q.eq('active',true)),
        allRows('visits','*',q=>q.eq('campaign_id',campaign.id)),
-       allRows('sectors'), allRows('cities'), allRows('teams'), allRows('team_streets'), allRows('team_members')
+       allRows('sectors'), allRows('cities'), allRows('teams'), allRows('team_members')
      ]);
-     const sectorCity=new Map(ss.map(x=>[x.id,x.city_id]));
+     const sectorById=new Map(ss.map(x=>[x.id,x]));
      const sharedCities=new Set(cc.filter(x=>x.shared_round===true).map(x=>x.id));
-     const shared=h=>sharedCities.has(sectorCity.get(h.sector_id));
+     const shared=h=>sharedCities.has(sectorById.get(h.sector_id)?.city_id);
      const visitable=h=>h.active!==false&&h.is_visitable!==false&&h.dwelling_type!=='immeuble';
      const normal=hh.filter(h=>visitable(h)&&!shared(h));
      const sharedHH=hh.filter(h=>visitable(h)&&shared(h));
      const vm=new Map(vv.map(v=>[v.household_id,v]));
-     const streetTeam=new Map(ts.map(x=>[x.street_id,x.team_id]));
-     const teamStats=tt.map(t=>({id:t.id,name:t.name,s:summarize(normal.filter(h=>streetTeam.get(h.street_id)===t.id),vm)}));
+     const owner=h=>teamForSector(sectorById.get(h.sector_id),tt);
+     const teamStats=tt.map(t=>({id:t.id,name:t.name,s:summarize(normal.filter(h=>owner(h)===t.id),vm)}));
      const sharedStats=summarize(sharedHH,vm);
 
      let main;
      if(me?.role==='admin') main=summarize(normal,vm);
      else{
        const own=new Set(tm.filter(x=>x.user_id===me?.id).map(x=>x.team_id));
-       main=summarize(normal.filter(h=>own.has(streetTeam.get(h.street_id))),vm);
+       main=summarize(normal.filter(h=>own.has(owner(h))),vm);
      }
      setMain(main);
      sharedCard(sharedStats);
