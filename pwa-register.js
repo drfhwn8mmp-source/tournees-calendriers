@@ -1,6 +1,6 @@
-/* Tournées Calendriers — mise à jour PWA sans rechargement en pleine tournée v3 */
+/* Tournées Calendriers — mise à jour PWA protégée v4 */
 (function () {
-  const APP_VERSION = '2026.10.05-2';
+  const APP_VERSION = '2026.10.06-1';
   function isStandalone(){return matchMedia('(display-mode: standalone)').matches||navigator.standalone===true}
   function platform(){const u=navigator.userAgent||'';return /android/i.test(u)?'android':/iphone|ipad|ipod/i.test(u)?'ios':'other'}
   function installHelp(){
@@ -9,16 +9,16 @@
     if(isStandalone())return p.textContent='✅ Application installée sur ce téléphone.';
     p.innerHTML=platform()==='ios'?'<b>iPhone / iPad :</b> Safari → Partager → Ajouter à l’écran d’accueil.':platform()==='android'?'<b>Android :</b> Chrome → menu ⋮ → Installer l’application ou Ajouter à l’écran d’accueil.':'<b>Installation :</b> ouvre le menu du navigateur puis choisis Installer l’application ou Ajouter à l’écran d’accueil.';
   }
-  function pending(){try{return (JSON.parse(localStorage.getItem('visitQueue')||'[]')||[]).length>0}catch(_){return false}}
+  function has(k){try{const a=JSON.parse(localStorage.getItem(k)||'[]');return Array.isArray(a)&&a.length>0}catch(_){return false}}
   function editing(){
-    if(pending())return true;
+    if(has('visitQueue')||has('visitQueueConflicts')||has('visitQueueClosed'))return true;
     const a=document.activeElement;if(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))return true;
-    return !!document.querySelector('#mapDoneOfflineV2[style*="display:flex"], #endDayPanel:not(.hidden)');
+    return !!document.querySelector('#mapDoneOfflineV2[style*="display:flex"], #endDayPanel:not(.hidden), #offlineConflictPanel:not(.hidden), #closedOfflinePanel:not(.hidden)');
   }
   function notice(){
     const t=document.getElementById('toast');if(!t)return;
-    t.textContent='⬆️ Mise à jour prête — elle sera appliquée quand tu ne seras plus en saisie.';
-    t.style.display='block';setTimeout(()=>t.style.display='none',4500);
+    t.textContent='⬆️ Mise à jour prête — conservée en attente tant que des saisies ou contrôles restent à traiter.';
+    t.style.display='block';setTimeout(()=>t.style.display='none',5000);
   }
   async function activate(reg){
     if(!reg?.waiting)return;
@@ -38,7 +38,6 @@
       let changed=false;
       navigator.serviceWorker.addEventListener('controllerchange',()=>{
         if(changed)return;changed=true;
-        /* Pas de reload forcé : la version prend effet au prochain lancement/rechargement naturel. */
         const t=document.getElementById('toast');if(t){t.textContent='✅ Mise à jour prête pour le prochain lancement.';t.style.display='block';setTimeout(()=>t.style.display='none',3500)}
       });
       window.addEventListener('focus',()=>activate(reg));
