@@ -1,9 +1,19 @@
-/* Reprise carte PWA V3 — iPhone + Android
-   + protection globale des popups maison contre les reconstructions de renderMap.
-   Ne touche pas aux données.
+/* Reprise carte PWA V4 — correctif popup carte
+   Cause corrigée : l'ouverture d'un popup Leaflet pouvait déplacer automatiquement
+   la carte (autoPan), déclencher "moveend", puis renderMap supprimait le marqueur
+   et donc le popup. Aucune modification des données.
 */
 (function(){
   let timers=[];
+
+  // Important : empêcher l'ouverture d'un popup de provoquer un moveend.
+  // La carte reste déplaçable/zoomable normalement par l'utilisateur.
+  try{
+    if(window.L && L.Popup && L.Popup.prototype && L.Popup.prototype.options){
+      L.Popup.prototype.options.autoPan=false;
+      L.Popup.prototype.options.keepInView=false;
+    }
+  }catch(_){}
 
   function mapVisible(){
     const el=document.getElementById('page-map');
@@ -12,14 +22,14 @@
 
   function popupOpen(){
     try{
-      if(typeof map!=='undefined' && map && typeof map.getPopup==='function' && map.getPopup()) return true;
+      if(typeof map!=='undefined' && map && map._popup && map._popup._map) return true;
       return !!document.querySelector('.leaflet-popup');
     }catch(_){return false}
   }
 
   function protectRenderMap(){
     if(typeof window.renderMap!=='function') return false;
-    if(window.renderMap.__popupStableV3) return true;
+    if(window.renderMap.__popupStableV4) return true;
     const original=window.renderMap;
     function protectedRenderMap(){
       if(popupOpen()){
@@ -28,7 +38,8 @@
       }
       return original.apply(this,arguments);
     }
-    protectedRenderMap.__popupStableV3=true;
+    protectedRenderMap.__popupStableV4=true;
+    protectedRenderMap.__original=original;
     window.renderMap=protectedRenderMap;
     return true;
   }
@@ -45,21 +56,25 @@
 
   function scheduleRefresh(){
     timers.forEach(clearTimeout);
-    timers=[0,80,220,500,900].map(ms=>setTimeout(refreshMap,ms));
+    timers=[
+      setTimeout(refreshMap,0),
+      setTimeout(()=>{if(!popupOpen())refreshMap()},150),
+      setTimeout(()=>{if(!popupOpen())refreshMap()},500)
+    ];
   }
 
-  // map-house-actions-v7 charge après ce fichier : attendre son renderMap puis l'envelopper.
+  // map-house-actions est chargé plus tard : protéger renderMap dès qu'il existe.
   let tries=0;
   const installTimer=setInterval(()=>{
     tries++;
-    if(protectRenderMap() || tries>100) clearInterval(installTimer);
-  },100);
+    if(protectRenderMap() || tries>120) clearInterval(installTimer);
+  },50);
 
   document.addEventListener('visibilitychange',()=>{
     if(document.visibilityState==='visible') scheduleRefresh();
   });
   window.addEventListener('pageshow',scheduleRefresh,true);
-  window.addEventListener('focus',scheduleRefresh,true);
+
   document.addEventListener('click',e=>{
     const tab=e.target.closest?.('[data-page="map"]');
     if(tab) scheduleRefresh();
