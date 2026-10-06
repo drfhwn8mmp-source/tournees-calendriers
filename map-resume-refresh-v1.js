@@ -1,10 +1,11 @@
-/* Reprise carte PWA V5 — stabilisation durable des marqueurs
-   Corrige le cas où map-house-actions remplace renderMap après l'installation
-   du garde popup. Aucune modification des données, adresses ou équipes.
+/* Reprise carte PWA V6 — marqueurs stables pendant popup/déplacement
+   Principe : ne plus reconstruire tous les marqueurs sur moveend/zoomend.
+   On conserve le rendu complet existant et on le relance seulement après
+   une vraie action ou un retour sur la carte. Aucune donnée modifiée.
 */
 (function(){
   let timers=[];
-  let lastWrapped=null;
+  let installedOnMap=null;
 
   try{
     if(window.L && L.Popup && L.Popup.prototype && L.Popup.prototype.options){
@@ -25,72 +26,81 @@
     }catch(_){return false}
   }
 
-  function protectRenderMap(){
-    const current=window.renderMap;
-    if(typeof current!=='function') return false;
-    if(current.__popupStableV5){ lastWrapped=current; return true; }
-
-    const original=current.__original || current;
-    function protectedRenderMap(){
-      if(popupOpen()){
-        try{if(typeof map!=='undefined'&&map)map.invalidateSize()}catch(_){}
-        return;
-      }
-      return original.apply(this,arguments);
-    }
-    protectedRenderMap.__popupStableV5=true;
-    protectedRenderMap.__original=original;
-    window.renderMap=protectedRenderMap;
-    lastWrapped=protectedRenderMap;
-    return true;
-  }
-
-  function refreshMap(){
-    if(!mapVisible()) return;
+  function safeRefresh(){
+    if(!mapVisible() || popupOpen()) return;
     try{
-      protectRenderMap();
-      if(typeof map!=='undefined' && map) map.invalidateSize();
-      if(!popupOpen() && typeof window.renderMap==='function') window.renderMap();
-      if(typeof map!=='undefined' && map) map.invalidateSize();
-    }catch(e){console.warn('Reprise carte:',e)}
+      if(typeof map!=='undefined' && map) map.invalidateSize({pan:false});
+      if(typeof window.renderMap==='function') window.renderMap();
+      if(typeof map!=='undefined' && map) map.invalidateSize({pan:false});
+    }catch(e){console.warn('Carte V6:',e)}
   }
 
-  function scheduleRefresh(){
-    timers.forEach(clearTimeout);
-    timers=[0,120,350,800].map(ms=>setTimeout(()=>{
-      protectRenderMap();
-      if(!popupOpen()) refreshMap();
-    },ms));
+  function scheduleRefresh(delay=0){
+    const t=setTimeout(safeRefresh,delay);
+    timers.push(t);
+    if(timers.length>20) timers.splice(0,10).forEach(clearTimeout);
   }
 
-  /* Important : plusieurs scripts définissent renderMap après celui-ci.
-     On surveille donc les remplacements au lieu d'arrêter au premier renderMap trouvé. */
-  setInterval(()=>{
+  /* Le bug venait aussi du renderMap V7 qui s'abonne à moveend/zoomend
+     et supprime/recrée tous les marqueurs à chaque déplacement.
+     On retire uniquement CES callbacks de rerendu et on garde Leaflet intact. */
+  function stabilizeMapEvents(){
     try{
-      if(typeof window.renderMap==='function' && window.renderMap!==lastWrapped){
-        protectRenderMap();
-      }
-    }catch(_){}
-  },250);
+      if(typeof map==='undefined' || !map || installedOnMap===map) return;
+      const ev=map._events||{};
+      ['moveend','zoomend'].forEach(name=>{
+        const handlers=ev[name];
+        if(!handlers) return;
+        const arr=Array.isArray(handlers)?handlers:[handlers];
+        arr.slice().forEach(h=>{
+          const fn=h&&h.fn;
+          if(typeof fn!=='function') return;
+          const src=Function.prototype.toString.call(fn);
+          if(src.includes('renderMap')){
+            try{map.off(name,fn,h.ctx)}catch(_){}
+          }
+        });
+      });
+      installedOnMap=map;
+
+      map.on('popupclose',()=>scheduleRefresh(80));
+      map.on('zoomend',()=>{ try{map.invalidateSize({pan:false})}catch(_){} });
+    }catch(e){console.warn('Carte V6 événements:',e)}
+  }
+
+  /* map est créé tardivement : attendre sa création puis stabiliser une seule fois. */
+  setInterval(stabilizeMapEvents,250);
 
   document.addEventListener('visibilitychange',()=>{
-    if(document.visibilityState==='visible') scheduleRefresh();
+    if(document.visibilityState==='visible'){
+      stabilizeMapEvents();
+      scheduleRefresh(100);
+    }
   });
-  window.addEventListener('pageshow',scheduleRefresh,true);
+  window.addEventListener('pageshow',()=>{
+    stabilizeMapEvents();
+    scheduleRefresh(120);
+  },true);
 
   document.addEventListener('click',e=>{
-    const tab=e.target.closest?.('[data-page="map"]');
-    if(tab) scheduleRefresh();
+    if(e.target.closest?.('[data-page="map"]')){
+      setTimeout(stabilizeMapEvents,100);
+      scheduleRefresh(180);
+      return;
+    }
 
-    /* Après une action dans un popup, attendre sa fermeture puis reconstruire
-       la couche complète de marqueurs. */
+    /* Toute action d'un popup : laisser l'enregistrement se terminer,
+       puis reconstruire une seule fois la couche complète. */
     if(e.target.closest?.('.leaflet-popup button')){
-      setTimeout(scheduleRefresh,100);
-      setTimeout(scheduleRefresh,700);
+      scheduleRefresh(350);
+      scheduleRefresh(900);
     }
   },true);
 
-  document.addEventListener('transitionend',()=>{
-    if(mapVisible() && !popupOpen()) scheduleRefresh();
+  /* Fermeture par la croix Leaflet / annulation d'un dialogue. */
+  document.addEventListener('click',e=>{
+    if(e.target.closest?.('.leaflet-popup-close-button')){
+      scheduleRefresh(180);
+    }
   },true);
 })();
