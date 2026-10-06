@@ -1,13 +1,11 @@
-/* Reprise carte PWA V4 — correctif popup carte
-   Cause corrigée : l'ouverture d'un popup Leaflet pouvait déplacer automatiquement
-   la carte (autoPan), déclencher "moveend", puis renderMap supprimait le marqueur
-   et donc le popup. Aucune modification des données.
+/* Reprise carte PWA V5 — stabilisation durable des marqueurs
+   Corrige le cas où map-house-actions remplace renderMap après l'installation
+   du garde popup. Aucune modification des données, adresses ou équipes.
 */
 (function(){
   let timers=[];
+  let lastWrapped=null;
 
-  // Important : empêcher l'ouverture d'un popup de provoquer un moveend.
-  // La carte reste déplaçable/zoomable normalement par l'utilisateur.
   try{
     if(window.L && L.Popup && L.Popup.prototype && L.Popup.prototype.options){
       L.Popup.prototype.options.autoPan=false;
@@ -28,9 +26,11 @@
   }
 
   function protectRenderMap(){
-    if(typeof window.renderMap!=='function') return false;
-    if(window.renderMap.__popupStableV4) return true;
-    const original=window.renderMap;
+    const current=window.renderMap;
+    if(typeof current!=='function') return false;
+    if(current.__popupStableV5){ lastWrapped=current; return true; }
+
+    const original=current.__original || current;
     function protectedRenderMap(){
       if(popupOpen()){
         try{if(typeof map!=='undefined'&&map)map.invalidateSize()}catch(_){}
@@ -38,9 +38,10 @@
       }
       return original.apply(this,arguments);
     }
-    protectedRenderMap.__popupStableV4=true;
+    protectedRenderMap.__popupStableV5=true;
     protectedRenderMap.__original=original;
     window.renderMap=protectedRenderMap;
+    lastWrapped=protectedRenderMap;
     return true;
   }
 
@@ -56,19 +57,21 @@
 
   function scheduleRefresh(){
     timers.forEach(clearTimeout);
-    timers=[
-      setTimeout(refreshMap,0),
-      setTimeout(()=>{if(!popupOpen())refreshMap()},150),
-      setTimeout(()=>{if(!popupOpen())refreshMap()},500)
-    ];
+    timers=[0,120,350,800].map(ms=>setTimeout(()=>{
+      protectRenderMap();
+      if(!popupOpen()) refreshMap();
+    },ms));
   }
 
-  // map-house-actions est chargé plus tard : protéger renderMap dès qu'il existe.
-  let tries=0;
-  const installTimer=setInterval(()=>{
-    tries++;
-    if(protectRenderMap() || tries>120) clearInterval(installTimer);
-  },50);
+  /* Important : plusieurs scripts définissent renderMap après celui-ci.
+     On surveille donc les remplacements au lieu d'arrêter au premier renderMap trouvé. */
+  setInterval(()=>{
+    try{
+      if(typeof window.renderMap==='function' && window.renderMap!==lastWrapped){
+        protectRenderMap();
+      }
+    }catch(_){}
+  },250);
 
   document.addEventListener('visibilitychange',()=>{
     if(document.visibilityState==='visible') scheduleRefresh();
@@ -78,5 +81,16 @@
   document.addEventListener('click',e=>{
     const tab=e.target.closest?.('[data-page="map"]');
     if(tab) scheduleRefresh();
+
+    /* Après une action dans un popup, attendre sa fermeture puis reconstruire
+       la couche complète de marqueurs. */
+    if(e.target.closest?.('.leaflet-popup button')){
+      setTimeout(scheduleRefresh,100);
+      setTimeout(scheduleRefresh,700);
+    }
+  },true);
+
+  document.addEventListener('transitionend',()=>{
+    if(mapVisible() && !popupOpen()) scheduleRefresh();
   },true);
 })();
