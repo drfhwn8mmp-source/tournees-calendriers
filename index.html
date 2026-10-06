@@ -9,7 +9,8 @@
 </style>
 <link rel="stylesheet" href="./mobile-compat.css?v=1">
 </head><body><header class="top"><h1>🚒 Tournées Calendriers</h1><small id="who">Amicale SP Volvic</small></header><main class="wrap">
-<section id="auth" class="login card"><h2>Connexion</h2><input id="email" type="email" placeholder="Adresse e-mail"><br><br><input id="password" type="password" placeholder="Mot de passe"><br><br><button class="btn" id="loginBtn">Se connecter</button> <button class="btn alt" id="signupBtn">Créer mon compte</button><p id="authMsg" class="muted"></p></section>
+<section id="auth" class="login card"><h2>Connexion</h2><input id="email" type="email" placeholder="Adresse e-mail"><br><br><input id="password" type="password" placeholder="Mot de passe"><br><br><button class="btn" id="loginBtn">Se connecter</button> <button class="btn alt" id="signupBtn">Créer mon compte</button><br><br><button class="btn alt" id="forgotPasswordBtn" type="button">🔑 Mot de passe oublié ?</button><p id="authMsg" class="muted"></p></section>
+<section id="passwordResetPanel" class="login card hidden"><h2>Nouveau mot de passe</h2><p class="muted">Choisis un nouveau mot de passe pour ton compte.</p><input id="newPassword" type="password" autocomplete="new-password" placeholder="Nouveau mot de passe (8 caractères minimum)"><br><br><input id="newPasswordConfirm" type="password" autocomplete="new-password" placeholder="Confirmer le nouveau mot de passe"><br><br><button class="btn" id="saveNewPassword" type="button">Enregistrer le nouveau mot de passe</button><p id="passwordResetMsg" class="muted"></p></section>
 <div id="app" class="hidden">
 <section id="page-home"><div class="card"><div class="row"><div><b>Campagne <span id="campaignYear">—</span></b><div id="syncState" class="muted sync">Synchronisation…</div></div><button class="btn alt" id="refreshBtn">↻</button></div></div>
 <div id="helpMode" class="card helpbar hidden"></div><button class="btn bigstart" onclick="page('tour')">▶ Continuer ma tournée</button><br><br>
@@ -28,6 +29,8 @@
 </div></main><nav id="tabs" class="tabs hidden"><button data-page="home"><b>⌂</b>Accueil</button><button data-page="tour"><b>✓</b>Tournée</button><button data-page="map"><b>⌖</b>Carte</button><button class="adminOnly" data-page="admin"><b>⚙</b>Admin</button><button data-page="settings"><b>☰</b>Compte</button></nav><div id="toast" class="toast"></div><script src="./app.js"></script>
 <script src="./navigation-core.js"></script>
 <script src="./map-resume-refresh-v1.js?v=1"></script>
+<script src="./password-recovery-v1.js?v=1"></script>
+<script src="./admin-password-reset-v1.js?v=1"></script>
 <script src="./help-mode.js"></script>
 <script src="./apartments-ui.js"></script>
 <script src="./members-ui.js"></script>
