@@ -1,6 +1,6 @@
-/* Tournées Calendriers — mise à jour PWA protégée v4 */
+/* Tournées Calendriers — mise à jour PWA protégée v5 + moteur carte V10 */
 (function () {
-  const APP_VERSION = '2026.10.06-1';
+  const APP_VERSION = '2026.10.06-2';
   function isStandalone(){return matchMedia('(display-mode: standalone)').matches||navigator.standalone===true}
   function platform(){const u=navigator.userAgent||'';return /android/i.test(u)?'android':/iphone|ipad|ipod/i.test(u)?'ios':'other'}
   function installHelp(){
@@ -20,17 +20,21 @@
     t.textContent='⬆️ Mise à jour prête — conservée en attente tant que des saisies ou contrôles restent à traiter.';
     t.style.display='block';setTimeout(()=>t.style.display='none',5000);
   }
-  async function activate(reg){
-    if(!reg?.waiting)return;
-    if(editing()){notice();return}
-    reg.waiting.postMessage({type:'SKIP_WAITING'});
+  async function activate(reg){if(!reg?.waiting)return;if(editing()){notice();return}reg.waiting.postMessage({type:'SKIP_WAITING'});}
+  function loadMapV10(){
+    if(document.querySelector('script[data-map-v10]'))return;
+    const s=document.createElement('script');
+    s.src='./map-house-actions-v10.js?v='+encodeURIComponent(APP_VERSION);
+    s.dataset.mapV10='1';
+    s.onload=()=>{try{window.renderMap?.()}catch(_){}};
+    document.body.appendChild(s);
   }
   async function register(){
+    loadMapV10();
     if(!('serviceWorker'in navigator))return;
     try{
       const reg=await navigator.serviceWorker.register('./sw.js?v='+encodeURIComponent(APP_VERSION),{scope:'./',updateViaCache:'none'});
-      await reg.update().catch(()=>{});
-      await activate(reg);
+      await reg.update().catch(()=>{}); await activate(reg);
       reg.addEventListener('updatefound',()=>{
         const w=reg.installing;if(!w)return;
         w.addEventListener('statechange',()=>{if(w.state==='installed'&&navigator.serviceWorker.controller)activate(reg)});
@@ -38,7 +42,7 @@
       let changed=false;
       navigator.serviceWorker.addEventListener('controllerchange',()=>{
         if(changed)return;changed=true;
-        const t=document.getElementById('toast');if(t){t.textContent='✅ Mise à jour prête pour le prochain lancement.';t.style.display='block';setTimeout(()=>t.style.display='none',3500)}
+        const t=document.getElementById('toast');if(t){t.textContent='✅ Mise à jour installée — ferme puis rouvre l’application.';t.style.display='block';setTimeout(()=>t.style.display='none',5000)}
       });
       window.addEventListener('focus',()=>activate(reg));
       document.addEventListener('visibilitychange',()=>{if(!document.hidden){reg.update().catch(()=>{});activate(reg)}});
