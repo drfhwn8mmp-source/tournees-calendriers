@@ -1,4 +1,4 @@
-// Reçus Gmail — Amicale SP Volvic
+// Reçus Gmail — Amicale SP Volvic — saisie simplifiée V2
 (function(){
 const E=id=>document.getElementById(id),clean=s=>String(s??'').trim();
 const money=n=>(Number(n)||0).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
@@ -17,7 +17,7 @@ Date : ${d}
 
 Destinataire : ${clean(r.recipient_name)||'Non renseigné'}
 ${clean(r.recipient_address)}
-${h?.unit_label?'Logement '+h.unit_label+'\n':''}${clean(r.recipient_postal_code)} ${clean(r.recipient_city)}
+${clean(r.recipient_postal_code)} ${clean(r.recipient_city)}
 
 Montant versé : ${money(r.amount)}
 Mode de paiement : ${pay(r.payment_method)}
@@ -31,15 +31,14 @@ Amicale des Sapeurs-Pompiers de Volvic
 recu.aspv63530@gmail.com`;}
 window.testReceiptEmail=async()=>{const to=clean(E('receiptTestEmail')?.value),o=E('receiptTestResult'),b=E('receiptTestBtn');if(!to)return o.textContent='Entre une adresse e-mail de test.';b.disabled=true;o.textContent='Envoi du test…';try{await send({to,subject:'Test reçus — Amicale des Sapeurs-Pompiers de Volvic',text:"Bonjour,\n\nTest automatique de l’application Tournées Calendriers.\n\nAmicale des Sapeurs-Pompiers de Volvic\n31 route de Marsat\n63530 Volvic"});o.textContent='✅ Test envoyé.'}catch(e){o.textContent='❌ '+(e.message||'Erreur')}finally{b.disabled=false}};
 window.receiptFor=async id=>{try{
- const v=visitFor(id),h=households.find(x=>x.id===id);if(!v?.id)return toast("Valide d'abord le passage");
- const name=prompt('Nom et prénom de la personne pour le reçu','');if(name===null)return;
- let da=`${h?.house_number||''} ${h?.street||''}`.trim();if(h?.unit_label)da+=` — Logement ${h.unit_label}`;
- const addr=prompt('Adresse du reçu',da);if(addr===null)return;
- const pc=prompt('Code postal',h?.postal_code||'63530');if(pc===null)return;
- const city=prompt('Commune',h?.city_name||h?.locality||'Volvic');if(city===null)return;
- const re=prompt('E-mail du destinataire (laisser vide pour créer sans envoyer)','');if(re===null)return;const email=clean(re);
+ const v=visitFor(id),h=households.find(x=>x.id===id);if(!v?.id||!h)return toast("Valide d'abord le passage");
+ const nameInput=prompt('Nom et prénom de la personne pour le reçu','');if(nameInput===null)return;const name=clean(nameInput);if(!name)return toast('Renseigne le nom et le prénom');
+ const emailInput=prompt('E-mail du destinataire (laisser vide pour créer sans envoyer)','');if(emailInput===null)return;const email=clean(emailInput);
  if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return toast('Adresse e-mail invalide');
- const {data:r,error}=await sb.rpc('create_receipt_for_visit',{p_visit_id:v.id,p_recipient_email:email||null,p_recipient_name:clean(name)||null,p_recipient_address:clean(addr)||null,p_recipient_postal_code:clean(pc)||null,p_recipient_city:clean(city)||null});if(error)throw error;
+ let addr=`${h.house_number||''} ${h.street||''}`.trim();if(h.unit_label)addr+=` — Logement ${h.unit_label}`;
+ const pc=clean(h.postal_code)||'63530',city=clean(h.city_name)||clean(h.locality)||'Volvic';
+ if(!addr)return toast('Adresse du logement manquante : reçu non créé');
+ const {data:r,error}=await sb.rpc('create_receipt_for_visit',{p_visit_id:v.id,p_recipient_email:email||null,p_recipient_name:name,p_recipient_address:addr,p_recipient_postal_code:pc,p_recipient_city:city});if(error)throw error;
  if(!email)return toast(`Reçu ${r.receipt_number} créé`);
  toast(`Envoi du reçu ${r.receipt_number}…`);
  try{await send({to:email,subject:`Votre reçu ${r.receipt_number} — Amicale des Sapeurs-Pompiers de Volvic`,text:receiptText(r,h)});await sb.from('receipts').update({delivery_status:'sent',sent_at:new Date().toISOString()}).eq('id',r.id);toast(`✅ Reçu ${r.receipt_number} envoyé`)}
