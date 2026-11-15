@@ -1,112 +1,83 @@
-/* Chargement complet léger V2 — Amicale SP Volvic
-   Récupère tous les foyers par pages Supabase.
-   N'affiche que les foyers correspondant aux filtres/recherche, avec pagination UI.
-   La carte affiche les points dans la zone visible pour éviter de bloquer le mobile.
-*/
+/* Amicale Volvic — chargement intégral et contrôlé, novembre 2026.
+   Aucun changement en base; pagination, vérification, rechargement sans perte des visites locales. */
 (function(){
-  const PAGE=1000, UI_PAGE=80;
-  let uiLimit=UI_PAGE, loading=false;
-
-  async function fetchAll(table, build){
-    const out=[];
-    for(let from=0;;from+=PAGE){
-      let q=build(sb.from(table).select('*')).range(from,from+PAGE-1);
-      const {data,error}=await q;
-      if(error) throw error;
-      out.push(...(data||[]));
-      if(!data || data.length<PAGE) break;
-    }
-    return out;
+ 'use strict';
+ const PAGE=500; let loading=false, lastGood=0, lastVisitSync=0;
+ const collator=new Intl.Collator('fr',{numeric:true,sensitivity:'base'});
+ const sortH=(a,b)=>collator.compare(a.street||'',b.street||'')||collator.compare(a.house_number||'',b.house_number||'')||collator.compare(a.locality||'',b.locality||'');
+ async function fetchAll(table,filter){
+  const result=[];let from=0;
+  for(;;){
+   const {data,error}=await filter(sb.from(table).select('*')).order('id',{ascending:true}).range(from,from+PAGE-1);
+   if(error)throw error;
+   result.push(...(data||[]));
+   if(!data||data.length<PAGE)break;
+   from+=PAGE;
+   if(from>100000)throw new Error('Limite de sécurité de chargement');
   }
-
-  function naturalCmp(a,b){
-    const c=new Intl.Collator('fr',{numeric:true,sensitivity:'base',ignorePunctuation:true});
-    return c.compare(String(a.street||''),String(b.street||'')) ||
-           c.compare(String(a.house_number||''),String(b.house_number||'')) ||
-           c.compare(String(a.locality||''),String(b.locality||'')) ||
-           c.compare(String(a.id||''),String(b.id||''));
-  }
-
-  function filtered(){
-    const sid=document.getElementById('sectorSelect')?.value||'';
-    const tid=document.getElementById('teamView')?.value||'';
-    const fs=document.getElementById('filterStatus')?.value||'';
-    const q=(document.getElementById('searchHouse')?.value||'').toLowerCase();
-    return visibleHouses().filter(h=>(!sid||h.sector_id===sid)&&(!tid||teamForHouse(h)===tid))
-      .filter(h=>{
-        const v=visitFor(h.id), st=v?.status||'a_faire';
-        return (!fs||st===fs) &&
-          `${h.house_number||''} ${h.street||''} ${h.locality||''} ${h.permanent_note||''}`.toLowerCase().includes(q);
-      }).sort(naturalCmp);
-  }
-
-  window.renderHouses=function(){
-    const box=document.getElementById('houses'); if(!box)return;
-    const all=filtered(), shown=all.slice(0,uiLimit);
-    box.innerHTML=shown.map(h=>houseHTML(h)).join('') ||
-      '<div class="card muted">Aucun foyer correspondant.</div>';
-    if(all.length>shown.length){
-      const more=document.createElement('div'); more.className='card';
-      more.innerHTML=`<div class="muted">${shown.length} affichées sur ${all.length}</div><br><button class="btn alt" id="showMoreHouses">Afficher les ${Math.min(UI_PAGE,all.length-shown.length)} suivantes</button>`;
-      box.appendChild(more);
-      document.getElementById('showMoreHouses').onclick=()=>{uiLimit+=UI_PAGE;window.renderHouses()};
-    }
-  };
-
-  function resetAndRender(){uiLimit=UI_PAGE;window.renderHouses()}
-  setTimeout(()=>{
-    ['teamView','sectorSelect','filterStatus'].forEach(id=>document.getElementById(id)?.addEventListener('change',resetAndRender));
-    document.getElementById('searchHouse')?.addEventListener('input',()=>{uiLimit=UI_PAGE});
-  },500);
-
-  window.renderMap=function(){
-    if(!map){
-      map=L.map('map').setView([45.872,3.038],13);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map);
-      map.on('click',e=>map._lastClick=e.latlng);
-      map.on('moveend zoomend',()=>window.renderMap());
-    }
-    markers.forEach(m=>m.remove()); markers=[];
-    const bounds=map.getBounds()?.pad(.15);
-    const list=visibleHouses().filter(h=>h.latitude&&h.longitude&&(!bounds||bounds.contains([+h.latitude,+h.longitude])));
-    list.forEach(h=>{
-      const st=visitFor(h.id)?.status||'a_faire';
-      const color=st==='fait'?'green':(['absent','a_repasser'].includes(st)?'orange':st==='refus'?'black':'gray');
-      const m=L.circleMarker([+h.latitude,+h.longitude],{radius:7,color,fillOpacity:.8})
-        .addTo(map).bindPopup(`<b>${esc(h.house_number||'')} ${esc(h.street||'')}</b><br>${esc(st)}`);
-      markers.push(m);
-    });
-    setTimeout(()=>map.invalidateSize(),100);
-  };
-
-  async function loadComplete(){
-    if(loading || typeof sb==='undefined' || typeof campaign==='undefined' || !campaign)return;
-    loading=true;
-    try{
-      setSync('Chargement complet des adresses…');
-      const hh=await fetchAll('households',q=>q.eq('active',true).order('id',{ascending:true}));
-      households=hh;
-      // Les visites peuvent elles aussi dépasser 1000 à mesure que la campagne avance.
-      const vv=await fetchAll('visits',q=>q.eq('campaign_id',campaign.id).order('id',{ascending:true}));
-      visits=vv;
-      households.sort(naturalCmp);
-      uiLimit=UI_PAGE;
-      renderFilters();
-      window.renderHouses();
-      renderStats();
-      window.renderMap();
-      setSync(`${households.filter(h=>h.is_test!==true).length} adresses chargées`);
-    }catch(e){
-      console.error('Chargement complet léger:',e);
-      setSync('Erreur chargement complet',true);
-      toast('Erreur chargement complet : '+(e.message||e));
-    }finally{loading=false}
-  }
-
-  const timer=setInterval(()=>{
-    if(typeof sb!=='undefined' && typeof campaign!=='undefined' && campaign){
-      clearInterval(timer); loadComplete();
-    }
-  },250);
-  setTimeout(()=>clearInterval(timer),15000);
+  return result;
+ }
+ async function countActive(){const {count,error}=await sb.from('households').select('id',{count:'exact',head:true}).eq('active',true);if(error)throw error;return count}
+ async function syncAll(force){
+  if(loading||typeof sb==='undefined'||typeof campaign==='undefined'||!campaign)return;
+  loading=true;
+  try{
+   const expected=await countActive();
+   if(!force&&lastGood===expected&&households.length===expected&&Date.now()-lastVisitSync<90000)return;
+   const fresh=await fetchAll('households',q=>q.eq('active',true));
+   if(fresh.length!==expected)throw new Error(`Adresses incomplètes (${fresh.length}/${expected})`);
+   const current=new Map((households||[]).map(h=>[h.id,h]));
+   const ids=new Set();
+   const merged=fresh.map(h=>{if(ids.has(h.id))throw new Error('Identifiant maison dupliqué');ids.add(h.id);return {...h,...(current.get(h.id)||{})}});
+   merged.sort(sortH);
+   // La campagne est rechargée par pages. Ne pas effacer une saisie locale plus récente.
+   const vfresh=await fetchAll('visits',q=>q.eq('campaign_id',campaign.id));
+   const old=new Map((visits||[]).filter(v=>v.id||v.household_id).map(v=>[v.household_id,v]));
+   const mergedVisits=new Map(vfresh.map(v=>[v.household_id,v]));
+   for(const [id,v] of old){const server=mergedVisits.get(id);if(!server){if(v.id==null||v.__pending||v._pending)mergedVisits.set(id,v)}else if((v.__pending||v._pending)&&new Date(v.client_updated_at||0)>new Date(server.client_updated_at||server.updated_at||0)){mergedVisits.set(id,v)}}
+   households=merged;visits=[...mergedVisits.values()];lastGood=expected;lastVisitSync=Date.now();
+   try{renderFilters()}catch(e){console.warn('Filtres:',e)}
+   try{renderHouses()}catch(e){console.warn('Maisons:',e)}
+   try{renderStats()}catch(e){console.warn('Statistiques:',e)}
+   try{window.renderMap?.()}catch(e){console.warn('Carte:',e)}
+   try{setSync(`${expected} adresses chargées et vérifiées`)}catch(_){}
+   window.__VOLVIC_ADDRESSES_READY=true;
+  }catch(e){console.error('Chargement complet Volvic:',e);window.__VOLVIC_ADDRESSES_READY=false;
+   try{setSync('Adresses incomplètes — réessayer',true)}catch(_){}
+   try{toast('Chargement incomplet : '+e.message)}catch(_){}
+  }finally{loading=false}
+ }
+ // Tableau de rattrapage : paiements sans reçu, accessible aux responsables.
+ async function backlog(){
+  const admin=document.getElementById('page-admin');
+  if(!admin||!campaign||!me||!['admin','responsable'].includes(me.role))return;
+  let panel=document.getElementById('volvicReceiptsBacklog');
+  if(!panel){panel=document.createElement('div');panel.id='volvicReceiptsBacklog';panel.className='card';admin.appendChild(panel)}
+  panel.textContent='Recherche des paiements sans reçu…';
+  try{
+   const [allReceipts,allVisits]=await Promise.all([
+    fetchAll('receipts',q=>q.eq('campaign_id',campaign.id)),
+    fetchAll('visits',q=>q.eq('campaign_id',campaign.id))
+   ]);
+   const received=new Set(allReceipts.filter(r=>!r.cancelled_at).map(r=>r.visit_id));
+   const missing=allVisits.filter(v=>Number(v.amount)>0&&!received.has(v.id));
+   panel.innerHTML='<h3>🧾 Reçus à régulariser</h3><p>'+missing.length+' passages payés sans reçu créé. Aucun envoi automatique : vérifier le destinataire.</p>';
+   const list=document.createElement('div');panel.appendChild(list);
+   for(const v of missing){
+    const h=(households||[]).find(h=>h.id===v.household_id);
+    const row=document.createElement('div');row.style.cssText='display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid #ddd;padding:8px 0';
+    const label=document.createElement('span');label.textContent=(h?`${h.house_number||''} ${h.street||''}`:'Maison '+v.household_id)+' — '+Number(v.amount).toFixed(2)+' €';row.appendChild(label);
+    const btn=document.createElement('button');btn.className='btn alt';btn.textContent='Créer reçu';btn.onclick=()=>{if(window.volvicOpenReceiptForVisit)window.volvicOpenReceiptForVisit(v.household_id);else alert('Module reçu en cours de chargement')};row.appendChild(btn);list.appendChild(row);
+   }
+  }catch(e){panel.textContent='Impossible de charger les reçus à régulariser : '+e.message}
+ }
+ window.volvicRefreshReceipts=backlog;
+ setTimeout(()=>{const t=setInterval(()=>{if(typeof campaign!=='undefined'&&campaign&&typeof me!=='undefined'&&me){clearInterval(t);setTimeout(backlog,4500)}},500);setTimeout(()=>clearInterval(t),20000)},1000);
+ window.volvicReloadAddresses=()=>syncAll(true);
+ const start=setInterval(()=>{if(typeof sb!=='undefined'&&typeof campaign!=='undefined'&&campaign){clearInterval(start);setTimeout(()=>syncAll(true),500)}},250);
+ setTimeout(()=>clearInterval(start),20000);
+ // Certains anciens scripts rechargent 1000 maisons et écrasent le jeu complet.
+ // Un contrôle régulier restaure la liste sans réécrire la base.
+ setInterval(()=>{if(lastGood&&typeof households!=='undefined'&&households.length<lastGood)syncAll(true)},12000);
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&lastGood&&households.length<lastGood)syncAll(true)});
 })();
