@@ -1,49 +1,34 @@
-// Reçus Gmail — Amicale SP Volvic — saisie simplifiée V2
+/* Amicale SP Volvic — reçus sans nom obligatoire, validation des ventes et envoi opt-in. */
 (function(){
+'use strict';
 const E=id=>document.getElementById(id),clean=s=>String(s??'').trim();
 const money=n=>(Number(n)||0).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
 const pay=p=>({especes:'Espèces',carte:'Carte',cheque:'Chèque',autre:'Autre'}[p]||p||'Non renseigné');
 async function send(x){const {data,error}=await sb.functions.invoke('send-receipt-email',{body:x});if(error)throw error;if(!data?.ok)throw new Error(data?.error||"Échec de l'envoi");return data;}
-function receiptText(r,h){const d=new Date(r.issued_at||Date.now()).toLocaleDateString('fr-FR');return `Bonjour ${clean(r.recipient_name)},
-
-Veuillez trouver ci-dessous votre reçu de versement.
-
-AMICALE DES SAPEURS-POMPIERS DE VOLVIC
-31 route de Marsat
-63530 Volvic
-
-Reçu n° ${r.receipt_number}
-Date : ${d}
-
-Destinataire : ${clean(r.recipient_name)||'Non renseigné'}
-${clean(r.recipient_address)}
-${clean(r.recipient_postal_code)} ${clean(r.recipient_city)}
-
-Montant versé : ${money(r.amount)}
-Mode de paiement : ${pay(r.payment_method)}
-Calendrier(s) remis : ${Number(r.calendars_count)||0}
-
-Ce document est un reçu de versement / paiement. Il ne constitue pas un reçu fiscal et ne vaut pas attestation ouvrant droit à une réduction d’impôt.
-
-Merci pour votre soutien.
-
-Amicale des Sapeurs-Pompiers de Volvic
-recu.aspv63530@gmail.com`;}
-window.testReceiptEmail=async()=>{const to=clean(E('receiptTestEmail')?.value),o=E('receiptTestResult'),b=E('receiptTestBtn');if(!to)return o.textContent='Entre une adresse e-mail de test.';b.disabled=true;o.textContent='Envoi du test…';try{await send({to,subject:'Test reçus — Amicale des Sapeurs-Pompiers de Volvic',text:"Bonjour,\n\nTest automatique de l’application Tournées Calendriers.\n\nAmicale des Sapeurs-Pompiers de Volvic\n31 route de Marsat\n63530 Volvic"});o.textContent='✅ Test envoyé.'}catch(e){o.textContent='❌ '+(e.message||'Erreur')}finally{b.disabled=false}};
+function receiptText(r){const d=new Date(r.issued_at||Date.now()).toLocaleDateString('fr-FR');return `Bonjour,\n\nVeuillez trouver votre reçu de versement.\n\nAMICALE DES SAPEURS-POMPIERS DE VOLVIC\n31 route de Marsat\n63530 Volvic\n\nReçu n° ${r.receipt_number}\nDate : ${d}\nAdresse : ${clean(r.recipient_address)}\n${clean(r.recipient_postal_code)} ${clean(r.recipient_city)}\nMontant versé : ${money(r.amount)}\nMode de paiement : ${pay(r.payment_method)}\nCalendrier(s) remis : ${Number(r.calendars_count)||0}\n\nCe document est un reçu de versement / paiement. Il ne constitue pas un reçu fiscal et ne vaut pas attestation ouvrant droit à une réduction d’impôt.\n\nMerci pour votre soutien.\nAmicale des Sapeurs-Pompiers de Volvic\nrecu.aspv63530@gmail.com`;}
 window.receiptFor=async id=>{try{
- const v=visitFor(id),h=households.find(x=>x.id===id);if(!v?.id||!h)return toast("Valide d'abord le passage");
- const nameInput=prompt('Nom et prénom de la personne pour le reçu','');if(nameInput===null)return;const name=clean(nameInput);if(!name)return toast('Renseigne le nom et le prénom');
- const emailInput=prompt('E-mail du destinataire (laisser vide pour créer sans envoyer)','');if(emailInput===null)return;const email=clean(emailInput);
- if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return toast('Adresse e-mail invalide');
+ if(!navigator.onLine)return toast('Hors connexion : synchroniser la vente avant de créer le reçu');
+ const h=households.find(x=>x.id===id);if(!h)return toast('Maison introuvable');
+ // Vérifier le passage côté serveur : une saisie locale hors connexion ne suffit pas.
+ const {data:v,error:ve}=await sb.from('visits').select('*').eq('campaign_id',campaign.id).eq('household_id',id).maybeSingle();
+ if(ve)throw ve;
+ if(!v?.id||v.status!=='fait'||Number(v.calendars_count)<=0)return toast('Reçu réservé aux ventes de calendriers synchronisées');
  let addr=`${h.house_number||''} ${h.street||''}`.trim();if(h.unit_label)addr+=` — Logement ${h.unit_label}`;
+ if(!addr)return toast('Adresse manquante : reçu non créé');
  const pc=clean(h.postal_code)||'63530',city=clean(h.city_name)||clean(h.locality)||'Volvic';
- if(!addr)return toast('Adresse du logement manquante : reçu non créé');
- const {data:r,error}=await sb.rpc('create_receipt_for_visit',{p_visit_id:v.id,p_recipient_email:email||null,p_recipient_name:name,p_recipient_address:addr,p_recipient_postal_code:pc,p_recipient_city:city});if(error)throw error;
- if(!email)return toast(`Reçu ${r.receipt_number} créé`);
- toast(`Envoi du reçu ${r.receipt_number}…`);
- try{await send({to:email,subject:`Votre reçu ${r.receipt_number} — Amicale des Sapeurs-Pompiers de Volvic`,text:receiptText(r,h)});await sb.from('receipts').update({delivery_status:'sent',sent_at:new Date().toISOString()}).eq('id',r.id);toast(`✅ Reçu ${r.receipt_number} envoyé`)}
- catch(e){await sb.from('receipts').update({delivery_status:'failed',sent_at:null}).eq('id',r.id);toast(`❌ Reçu créé mais e-mail non envoyé : ${e.message||'erreur'}`)}
-}catch(e){toast('Reçu impossible : '+(e.message||'erreur'))}};
-function install(){const b=E('receiptConfig');if(!b||E('receiptTestEmail'))return;b.innerHTML='<div class="street"><b>📧 Envoi Gmail</b><div class="muted">Expéditeur : recu.aspv63530@gmail.com</div><div class="muted">✅ Connexion configurée — envoi direct des reçus actif.</div><br><div class="row"><input id="receiptTestEmail" type="email" placeholder="Adresse e-mail pour le test"><button class="btn" id="receiptTestBtn" onclick="testReceiptEmail()">Envoyer un test</button></div><div id="receiptTestResult" class="muted" style="margin-top:8px"></div></div>'}
+ const {data:r,error}=await sb.rpc('create_receipt_for_visit',{p_visit_id:v.id,p_recipient_email:null,p_recipient_name:null,p_recipient_address:addr,p_recipient_postal_code:pc,p_recipient_city:city});if(error)throw error;
+ toast(`Reçu ${r.receipt_number} enregistré`,true);
+ if(!confirm(`Reçu ${r.receipt_number} enregistré. Souhaites-tu l'envoyer par e-mail ?`))return;
+ const raw=prompt('Adresse e-mail du destinataire (Annuler = aucun envoi)','');if(raw===null)return;
+ const email=clean(raw);if(!email)return;
+ if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return toast('Adresse e-mail invalide');
+ if(!confirm(`Confirmer l'envoi du reçu ${r.receipt_number} à ${email} ?`))return;
+ try{await send({to:email,subject:`Votre reçu ${r.receipt_number} — Amicale des Sapeurs-Pompiers de Volvic`,text:receiptText(r)});
+ const {error:ue}=await sb.from('receipts').update({recipient_email:email,delivery_status:'sent',sent_at:new Date().toISOString()}).eq('id',r.id);if(ue)throw ue;
+ toast(`Reçu ${r.receipt_number} envoyé`,true);
+ }catch(e){toast(`Reçu créé, envoi non confirmé : ${e.message||'erreur'}`,true);}
+}catch(e){toast('Reçu impossible : '+(e.message||'erreur'),true)}};
+window.testReceiptEmail=async()=>{const to=clean(E('receiptTestEmail')?.value),o=E('receiptTestResult'),b=E('receiptTestBtn');if(!to)return o.textContent='Entre une adresse e-mail de test.';if(!confirm(`Envoyer un e-mail de test à ${to} ?`))return;b.disabled=true;o.textContent='Envoi du test…';try{await send({to,subject:'Test reçus — Amicale des Sapeurs-Pompiers de Volvic',text:'Test de l’application Tournées Calendriers.'});o.textContent='Test envoyé.'}catch(e){o.textContent='Échec : '+(e.message||'Erreur')}finally{b.disabled=false}};
+function install(){const b=E('receiptConfig');if(!b||E('receiptTestEmail'))return;b.innerHTML='<div class="street"><b>📧 Envoi Gmail</b><div class="muted">Expéditeur : recu.aspv63530@gmail.com</div><div class="muted">Statut de la connexion à vérifier avant tout envoi.</div><br><div class="row"><input id="receiptTestEmail" type="email" placeholder="Adresse e-mail de test"><button class="btn" id="receiptTestBtn" onclick="testReceiptEmail()">Envoyer un test</button></div><div id="receiptTestResult" class="muted" style="margin-top:8px"></div></div>'}
 document.addEventListener('DOMContentLoaded',install);setTimeout(install,500);new MutationObserver(install).observe(document.documentElement,{childList:true,subtree:true});
 })();
