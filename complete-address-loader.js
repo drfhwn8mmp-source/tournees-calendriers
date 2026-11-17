@@ -28,7 +28,7 @@
    if(fresh.length!==expected)throw new Error(`Adresses incomplètes (${fresh.length}/${expected})`);
    const current=new Map((households||[]).map(h=>[h.id,h]));
    const ids=new Set();
-   const merged=fresh.map(h=>{if(ids.has(h.id))throw new Error('Identifiant maison dupliqué');ids.add(h.id);return {...h,...(current.get(h.id)||{})}});
+   const merged=fresh.map(h=>{if(ids.has(h.id))throw new Error('Identifiant maison dupliqué');ids.add(h.id);return {...(current.get(h.id)||{}),...h}});
    merged.sort(sortH);
    // La campagne est rechargée par pages. Ne pas effacer une saisie locale plus récente.
    const vfresh=await fetchAll('visits',q=>q.eq('campaign_id',campaign.id));
