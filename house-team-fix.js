@@ -2,9 +2,10 @@
 (function(){
 'use strict';
 const norm=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+let sectorLinks=[];
 function sectorTeam(id){
  const s=(typeof sectors!=='undefined'?sectors:[]).find(x=>x.id===id);if(!s)return {known:false,team:null};
- const n=norm(s.name);if((n.includes('moulet')&&n.includes('marcenat'))||n.includes('test'))return {known:true,team:null};
+ const n=norm(s.name);const linked=sectorLinks.filter(x=>x.sector_id===id);if(linked.length===1)return {known:true,team:linked[0].team_id};if((n.includes('moulet')&&n.includes('marcenat'))||n.includes('test'))return {known:true,team:null};
  const m=n.match(/equipe\s*(\d+)/),t=(typeof teams!=='undefined'?teams:[]).find(x=>m?new RegExp('equipe\\s*'+m[1]+'(?:\\D|$)').test(norm(x.name)):norm(x.name)===n);
  return {known:true,team:t?.id||null};
 }
@@ -55,4 +56,38 @@ function addControl(){
 }
 document.addEventListener('DOMContentLoaded',addControl);
 setTimeout(addControl,900);setTimeout(addControl,3500);
+
+// Les maisons de la tournée commune doivent rester visibles même sans équipe propriétaire.
+// Ne jamais changer les données de passage ou d'affectation dans cette correction.
+function sharedHouse(h){const s=(typeof sectors!=='undefined'?sectors:[]).find(x=>x.id===h.sector_id);const n=norm(s?.name);return n.includes('moulet')&&n.includes('marcenat')}
+window.visibleHouses=function(){
+ if(typeof me==='undefined'||!me)return [];
+ const hs=typeof households!=='undefined'?households:[];
+ if(['admin','responsable'].includes(me.role))return hs;
+ const ids=(typeof members!=='undefined'?members:[]).filter(x=>x.user_id===me.id).map(x=>x.team_id);
+ return hs.filter(h=>sharedHouse(h)||ids.includes(window.teamForHouse(h))||(typeof helpTeam!=='undefined'&&helpTeam&&window.teamForHouse(h)===helpTeam));
+};
+async function reloadSectorLinks(){
+ if(typeof sb==='undefined'||typeof campaign==='undefined'||!campaign)return;
+ const {data,error}=await sb.from('team_sectors').select('team_id,sector_id');
+ if(error){console.warn('Liens secteurs non chargés',error);return}
+ sectorLinks=data||[];
+ try{window.renderHouses?.();window.renderStats?.();window.renderMap?.()}catch(e){console.warn(e)}
+}
+function addAddressDiagnostics(){
+ if(document.getElementById('volvicAddressDiagnostics'))return;
+ const host=document.getElementById('page-tour')||document.getElementById('houses')?.parentElement;
+ if(!host)return;
+ const wrap=el('div',{id:'volvicAddressDiagnostics',style:'margin:8px 0;display:flex;flex-wrap:wrap;gap:8px'});
+ const reset=el('button',{type:'button',className:'btn alt'},'Afficher toutes les maisons de ma tournée');
+ const refresh=el('button',{type:'button',className:'btn alt'},'Actualiser les adresses');
+ const info=el('span',{role:'status',style:'width:100%;font-size:12px'});
+ reset.onclick=()=>{for(const id of ['sectorSelect','teamView','filterStatus','searchHouse']){const node=document.getElementById(id);if(node){node.value='';node.dispatchEvent(new Event('change',{bubbles:true}))}}try{window.renderHouses?.()}catch(e){console.warn(e)}info.textContent='Filtres effacés : affichage de la tournée et de Moulet-Marcenat.'};
+ refresh.onclick=async()=>{refresh.disabled=true;info.textContent='Synchronisation…';try{await reloadSectorLinks();if(window.volvicReloadAddresses)await window.volvicReloadAddresses();else if(typeof loadAll==='function')await loadAll();info.textContent='Actualisation demandée. Vérifier le nombre de maisons et les filtres.'}catch(e){info.textContent='Erreur : '+(e.message||e)}finally{refresh.disabled=false}};
+ wrap.append(reset,refresh,info);host.insertBefore(wrap,host.firstChild);
+}
+function initialize(){addControl();addAddressDiagnostics();if(typeof campaign!=='undefined'&&campaign)reloadSectorLinks()}
+document.addEventListener('DOMContentLoaded',()=>setTimeout(initialize,700));
+setTimeout(initialize,1800);
+setTimeout(initialize,5500);
 })();
